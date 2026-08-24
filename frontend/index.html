@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Point-Not-So-Mid</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header>
+  <h1>Point&#8209;Not&#8209;So&#8209;Mid</h1>
+  <p class="tagline">A meeting spot that's fair to both of you &mdash; by transit time, not by map distance.</p>
+</header>
+
+<main>
+  <form id="form" class="panel">
+    <div class="row two">
+      <div>
+        <label>Person 1 starts at
+          <span class="typeahead">
+            <input name="person1" placeholder="e.g. Ballard, Seattle" value="Ballard, Seattle, WA"
+                   autocomplete="off" role="combobox" aria-expanded="false"
+                   aria-controls="ac-person1" aria-autocomplete="list" required>
+            <ul class="suggestions" id="ac-person1" role="listbox" hidden></ul>
+          </span>
+        </label>
+        <div class="modes" data-person="1"></div>
+      </div>
+      <div>
+        <label>Person 2 starts at
+          <span class="typeahead">
+            <input name="person2" placeholder="e.g. Columbia City, Seattle" value="Columbia City, Seattle, WA"
+                   autocomplete="off" role="combobox" aria-expanded="false"
+                   aria-controls="ac-person2" aria-autocomplete="list" required>
+            <ul class="suggestions" id="ac-person2" role="listbox" hidden></ul>
+          </span>
+        </label>
+        <div class="modes" data-person="2"></div>
+      </div>
+    </div>
+
+    <fieldset>
+      <legend>What are you both up for?</legend>
+      <div id="categories" class="chips"></div>
+      <label class="free-text">Anything more specific? <span class="hint">optional</span>
+        <input name="free_text" placeholder="somewhere quiet with outdoor seating">
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Limits</legend>
+      <div class="row two">
+        <label>Max travel time <output id="timeOut">45 min</output>
+          <input type="range" name="max_time_min" min="10" max="120" step="5" value="45">
+        </label>
+        <label id="transferField">Max transfers <output id="transferOut">2</output>
+          <input type="range" name="max_transfers" min="0" max="4" step="1" value="2">
+          <span class="hint" id="transferNote"></span>
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" name="require_open"> Only show places open when we searched</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>What is &ldquo;fair&rdquo;?</legend>
+      <div class="segmented" id="fairnessMode">
+        <label><input type="radio" name="fairness_mode" value="gap" checked>
+          <span><strong>Minimize the gap between us</strong><em>Neither person gets the worse trip.</em></span></label>
+        <label><input type="radio" name="fairness_mode" value="absolute">
+          <span><strong>Minimize total travel time</strong><em>Least combined time, even if lopsided.</em></span></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>What matters most? <span class="hint">always totals 100%</span></legend>
+      <div class="weights">
+        <label>Fairness <output data-for="fairness">40%</output>
+          <input type="range" name="w_fairness" min="0" max="100" value="40"></label>
+        <label>Preference match <output data-for="preference">40%</output>
+          <input type="range" name="w_preference" min="0" max="100" value="40"></label>
+        <label id="weightTransfers">Fewer transfers <output data-for="transfers">20%</output>
+          <input type="range" name="w_transfers" min="0" max="100" value="20"></label>
+      </div>
+    </fieldset>
+
+    <button type="submit" id="submit">Find our spot</button>
+  </form>
+
+  <section id="status" class="panel hidden" aria-live="polite"></section>
+
+  <section id="output" class="hidden">
+    <div id="map"></div>
+    <div id="results"></div>
+    <details id="detail" class="panel">
+      <summary>How this was worked out</summary>
+      <div id="detailBody"></div>
+    </details>
+  </section>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
