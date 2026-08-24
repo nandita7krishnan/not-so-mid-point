@@ -195,7 +195,7 @@ function addParty(defaults = {}) {
   row.className = "party";
   row.innerHTML = `
     <div class="who">
-      <span class="dot" style="color:${LEG_COLORS[index]}">&#9679;</span>
+      <span class="dot" style="color:${LEG_COLORS[index]}"></span>
       <input class="party-name" value="${escapeHtml(defaultPartyName(index))}"
              aria-label="Name for this person" maxlength="24" spellcheck="false">
       <button type="button" class="remove-party" aria-label="Remove this person" title="Remove">&times;</button>
@@ -277,7 +277,7 @@ function renumberParties() {
   $("#partyCount").textContent =
     parties.length >= MAX_PARTIES
       ? `${MAX_PARTIES} is the maximum`
-      : `${parties.length} people · up to ${MAX_PARTIES}`;
+      : `${parties.length} of ${MAX_PARTIES}`;
 }
 
 function partyName(party, index) {
