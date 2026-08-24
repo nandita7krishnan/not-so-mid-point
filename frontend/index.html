@@ -9,9 +9,90 @@
 </head>
 <body>
 <header>
-  <h1>Not&#8209;So&#8209;Mid&#8209;Point</h1>
-  <p class="tagline">A meeting spot that's fair to everyone &mdash; by real travel time, not by map distance.</p>
+  <div class="masthead">
+    <div>
+      <h1>Not&#8209;So&#8209;Mid&#8209;Point</h1>
+      <p class="tagline">A meeting spot that's fair to everyone &mdash; by real travel time, not by map distance.</p>
+    </div>
+    <button type="button" id="helpButton" aria-label="How this works" title="How this works">?</button>
+  </div>
 </header>
+
+<dialog id="helpDialog" aria-labelledby="helpTitle">
+  <article>
+    <div class="dialog-head">
+      <h2 id="helpTitle">How this works</h2>
+      <button type="button" class="close-dialog" aria-label="Close">&times;</button>
+    </div>
+
+    <h3>What it is</h3>
+    <p>A way for two to five people to settle on where to meet, based on what each
+    person&rsquo;s journey actually costs rather than on where the map&rsquo;s midpoint
+    happens to fall.</p>
+
+    <h3>Why not just split the difference?</h3>
+    <p>A geographic midpoint fails in three specific ways. It can land somewhere with
+    no transit service at all. It ignores that transit networks are radial &mdash; two
+    people the same distance away can have very different journeys, one direct and one
+    with two transfers. And &ldquo;halfway&rdquo; isn&rsquo;t the same as &ldquo;fair&rdquo;,
+    which isn&rsquo;t the same as &ldquo;somewhere we all want to be&rdquo;.</p>
+
+    <h3>What it does</h3>
+    <ol>
+      <li><strong>Samples real places.</strong> Candidate neighbourhoods along the
+      corridor between the two people furthest apart &mdash; not grid points, which can
+      land in the middle of a lake.</li>
+      <li><strong>Asks Google what each trip costs.</strong> Every person is routed in
+      their own travel mode, giving real travel time and transfer counts.</li>
+      <li><strong>Drops anything over your limits</strong>, for anyone. If nothing
+      survives, it tells you the smallest change that would help.</li>
+      <li><strong>Finds venues</strong> in the surviving neighbourhoods matching what
+      the group is up for.</li>
+      <li><strong>Scores and validates</strong>, then checks the top picks are actually
+      open and not permanently closed before showing them.</li>
+    </ol>
+
+    <h3>How &ldquo;fair&rdquo; is calculated</h3>
+    <p>Two definitions, and the toggle genuinely changes the answer &mdash; it reaches
+    all the way back into where the search looks, not just how results are sorted.</p>
+    <ul>
+      <li><strong>Minimize the gap</strong> &mdash; scores the spread between the
+      best-off and worst-off person, with a penalty on the longest single trip so a
+      uniformly awful journey can&rsquo;t win just by being even.</li>
+      <li><strong>Minimize total travel time</strong> &mdash; the least combined time,
+      accepting that one person may draw the short straw.</li>
+    </ul>
+
+    <h3>How the ranking works</h3>
+    <p>Three components, each scored 0&ndash;100% on an <em>absolute</em> scale, then
+    weighted by your sliders:</p>
+    <ul>
+      <li><strong>Fairness</strong> &mdash; how much worse than the best available
+      option, measured in minutes.</li>
+      <li><strong>Preference</strong> &mdash; how well the venue matches what you asked
+      for. Ratings are weighted by review count, so a 5.0 from 30 reviews doesn&rsquo;t
+      beat a 4.5 from 900.</li>
+      <li><strong>Transfers</strong> &mdash; only counted for people actually on
+      transit; a drive or a walk has none.</li>
+    </ul>
+    <p class="dialog-note">Absolute scales matter here: grading on a curve would
+    stretch a four-minute difference into the whole range and let it dominate
+    everything else.</p>
+
+    <h3>Worth knowing</h3>
+    <ul>
+      <li>Travel times are measured to the neighbourhood, not the exact doorstep &mdash;
+      venues are kept within 1.2&nbsp;km of it, so expect a few minutes&rsquo; walk.</li>
+      <li>Scheduled transit data, not live delays.</li>
+      <li>A mixed group compares time, not effort: a 20-minute drive and a 20-minute
+      walk score the same.</li>
+    </ul>
+
+    <p class="dialog-footer">Full technical detail lives in
+    <a href="https://github.com/nandita7krishnan/not-so-mid-point/blob/main/METHODOLOGY.md"
+       target="_blank" rel="noopener">METHODOLOGY.md</a>.</p>
+  </article>
+</dialog>
 
 <main>
   <form id="form" class="panel">

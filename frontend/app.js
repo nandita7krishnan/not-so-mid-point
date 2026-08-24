@@ -17,6 +17,8 @@ const MODE_SHORT = { transit: "transit", driving: "drive", bicycling: "bike", wa
 const MIN_PARTIES = 2;
 const MAX_PARTIES = 5;
 const LEG_COLORS = ["#2f6f5e", "#a8563c", "#3d5a80", "#7a5a8c", "#8a6d1f"];
+const PARTY_LETTERS = ["A", "B", "C", "D", "E"];
+const defaultPartyName = (i) => `Person ${PARTY_LETTERS[i]}`;
 
 /* One entry per participant. `field` is the AddressField bound to its input. */
 const parties = [];
@@ -186,27 +188,42 @@ function buildChips() {
 function addParty(defaults = {}) {
   if (parties.length >= MAX_PARTIES) return;
   const index = parties.length;
-  const party = { mode: defaults.mode || "transit", field: null };
+  const party = { mode: defaults.mode || "transit", field: null, nameInput: null, renamed: false };
   parties.push(party);
 
   const row = document.createElement("div");
   row.className = "party";
   row.innerHTML = `
     <div class="who">
-      <strong>Person ${index + 1}</strong>
-      <span class="hint" data-role="pill" style="color:${LEG_COLORS[index]}">&#9679;</span>
+      <span class="dot" style="color:${LEG_COLORS[index]}">&#9679;</span>
+      <input class="party-name" value="${escapeHtml(defaultPartyName(index))}"
+             aria-label="Name for this person" maxlength="24" spellcheck="false">
+      <button type="button" class="remove-party" aria-label="Remove this person" title="Remove">&times;</button>
     </div>
     <div class="field">
       <span class="typeahead">
-        <input placeholder="e.g. Ballard, Seattle" autocomplete="off" role="combobox"
-               aria-expanded="false" aria-autocomplete="list" aria-label="Person ${index + 1} starting address" required>
+        <input class="address" placeholder="e.g. Ballard, Seattle" autocomplete="off" role="combobox"
+               aria-expanded="false" aria-autocomplete="list" required>
         <ul class="suggestions" role="listbox" hidden></ul>
       </span>
       <div class="modes"></div>
-    </div>
-    <button type="button" class="remove-party" aria-label="Remove person">Remove</button>`;
+    </div>`;
 
-  const input = row.querySelector("input");
+  const nameInput = row.querySelector(".party-name");
+  party.nameInput = nameInput;
+  // Renaming is opt-in: an untouched field keeps tracking its letter as people
+  // are added or removed, a renamed one is left alone.
+  nameInput.addEventListener("input", () => {
+    party.renamed = nameInput.value.trim().length > 0;
+  });
+  nameInput.addEventListener("blur", () => {
+    if (!nameInput.value.trim()) {
+      party.renamed = false;
+      renumberParties();
+    }
+  });
+
+  const input = row.querySelector("input.address");
   input.value = defaults.address || "";
   party.field = new AddressField(input, row.querySelector(".suggestions"));
 
@@ -245,18 +262,26 @@ function removeParty(party) {
 /* Labels, colours and the add/remove affordances all depend on the count. */
 function renumberParties() {
   [...$("#parties").children].forEach((row, i) => {
-    row.querySelector(".who strong").textContent = `Person ${i + 1}`;
-    row.querySelector('[data-role="pill"]').style.color = LEG_COLORS[i];
-    row.querySelector("input").setAttribute("aria-label", `Person ${i + 1} starting address`);
-    row.querySelector(".remove-party").disabled = parties.length <= MIN_PARTIES;
-    row.querySelector(".remove-party").style.visibility =
-      parties.length <= MIN_PARTIES ? "hidden" : "visible";
+    const party = parties[i];
+    row.querySelector(".dot").style.color = LEG_COLORS[i];
+    if (!party.renamed) party.nameInput.value = defaultPartyName(i);
+    row.querySelector("input.address").setAttribute(
+      "aria-label",
+      `${party.nameInput.value} starting address`
+    );
+    const remove = row.querySelector(".remove-party");
+    remove.disabled = parties.length <= MIN_PARTIES;
+    remove.style.visibility = parties.length <= MIN_PARTIES ? "hidden" : "visible";
   });
   $("#addParty").disabled = parties.length >= MAX_PARTIES;
   $("#partyCount").textContent =
     parties.length >= MAX_PARTIES
       ? `${MAX_PARTIES} is the maximum`
       : `${parties.length} people · up to ${MAX_PARTIES}`;
+}
+
+function partyName(party, index) {
+  return party.nameInput.value.trim() || defaultPartyName(index);
 }
 
 /* Transfers only exist on transit, so both the budget and the weight are
@@ -439,7 +464,7 @@ function renderDetail(data) {
     ${specLine}
     <p><strong>Neighbourhoods that passed your limits (${data.shortlist.length}), best fairness first:</strong></p>
     <table><thead><tr><th>Neighbourhood</th>
-    ${data.people.map((p) => `<th>${escapeHtml(shortName(p.location.label))}</th>`).join("")}
+    ${data.people.map((p) => `<th>${escapeHtml(p.label)}</th>`).join("")}
     <th>${data.people.length > 2 ? "Spread" : "Gap"}</th><th>Transfers</th></tr></thead>
     <tbody>${rows}</tbody></table>
     <p class="hint" style="margin-top:.75rem">${escapeHtml(timings)}</p>`;
@@ -474,7 +499,7 @@ function drawMap(data) {
   data.people.forEach((person, i) => {
     const { lat, lng } = person.location.coords;
     L.marker([lat, lng], { icon: pin(LEG_COLORS[i], String(i + 1)) })
-      .bindPopup(escapeHtml(person.location.label))
+      .bindPopup(`<strong>${escapeHtml(person.label)}</strong><br>${escapeHtml(person.location.label)}`)
       .addTo(layer);
     points.push([lat, lng]);
   });
@@ -521,10 +546,14 @@ function escapeHtml(value) {
 /* --------------------------------------------------------------- request */
 async function submit(event) {
   event.preventDefault();
-  const blank = parties.find((party) => party.field.input.value.trim().length < 2);
-  if (blank) {
-    blank.field.input.focus();
-    showNotice("Missing a starting point", "Every person needs an address.");
+  const blankIndex = parties.findIndex((party) => party.field.input.value.trim().length < 2);
+  if (blankIndex >= 0) {
+    const party = parties[blankIndex];
+    party.field.input.focus();
+    showNotice(
+      "Missing a starting point",
+      `${partyName(party, blankIndex)} needs an address before we can search.`
+    );
     return;
   }
 
@@ -543,7 +572,7 @@ async function submit(event) {
         mode: party.mode,
         place_id: picked.placeId,
         session: picked.session,
-        label: `Person ${i + 1}`,
+        label: partyName(party, i),
       };
     }),
     categories: selectedCategories(),
@@ -574,7 +603,7 @@ async function submit(event) {
     }
 
     statusBox.className = "panel hidden";
-    const people = data.people.map((p) => shortName(p.location.label));
+    const people = data.people.map((p) => p.label);
     results.innerHTML =
       data.results.map((item, i) => spotCard(item, i, people)).join("") + renderWarnings(data.warnings);
     renderDetail(data);
@@ -605,6 +634,15 @@ form.addEventListener("input", (event) => {
   if (!String(event.target.name || "").startsWith("w_")) syncOutputs();
 });
 form.addEventListener("submit", submit);
+
+const helpDialog = $("#helpDialog");
+$("#helpButton").addEventListener("click", () => helpDialog.showModal());
+helpDialog.querySelector(".close-dialog").addEventListener("click", () => helpDialog.close());
+// Clicking the backdrop closes it; clicks inside the panel must not.
+helpDialog.addEventListener("click", (event) => {
+  if (event.target === helpDialog) helpDialog.close();
+});
+
 syncTransferControls();
 applyWeights();
 syncOutputs();

@@ -28,7 +28,8 @@ ranked suggestions, each showing every journey in full:
 ```
 
 - **Two to five people.** Add and remove participants freely; the fairness maths
-  generalises rather than special-casing pairs.
+  generalises rather than special-casing pairs. Everyone starts as Person A, B,
+  C… and can be renamed — the names carry through to the results and the map.
 - **Per-person travel modes** — bus/train, drive, bike, or walk, chosen
   independently. A driver and a rider meeting in the middle land somewhere quite
   different from two riders.
@@ -44,6 +45,8 @@ ranked suggestions, each showing every journey in full:
 - **Address autocomplete** so "Fremont" doesn't silently resolve to California.
 - **Honest failure.** When nothing fits, it tells you what to relax: *"Try to
   raise the travel time limit to about 45 min (closest option: Belltown)."*
+- **A help dialog** (the `?`, top right) explaining what the tool does and how
+  fairness and ranking are calculated, without leaving the page.
 
 Seeded with ~50 Seattle-area neighbourhoods; elsewhere it falls back to sampling
 and reverse geocoding.
