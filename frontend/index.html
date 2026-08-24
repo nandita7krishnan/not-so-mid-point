@@ -12,7 +12,7 @@
   <div class="masthead">
     <div>
       <h1>Not&#8209;So&#8209;Mid&#8209;Point</h1>
-      <p class="tagline">A meeting spot that's fair to everyone &mdash; by real travel time, not by map distance.</p>
+      <p class="tagline">A meeting spot that's fair to everyone, by real travel time rather than map distance.</p>
     </div>
     <button type="button" id="helpButton" aria-label="How this works" title="How this works">?</button>
   </div>
@@ -26,65 +26,65 @@
     </div>
 
     <h3>What it is</h3>
-    <p>A way for two to five people to settle on where to meet, based on what each
-    person&rsquo;s journey actually costs rather than on where the map&rsquo;s midpoint
-    happens to fall.</p>
+    <p>A way for two to five people to agree on where to meet. It compares what each
+    person&rsquo;s trip actually costs, instead of pointing at the middle of the map.</p>
 
-    <h3>Why not just split the difference?</h3>
-    <p>A geographic midpoint fails in three specific ways. It can land somewhere with
-    no transit service at all. It ignores that transit networks are radial &mdash; two
-    people the same distance away can have very different journeys, one direct and one
-    with two transfers. And &ldquo;halfway&rdquo; isn&rsquo;t the same as &ldquo;fair&rdquo;,
-    which isn&rsquo;t the same as &ldquo;somewhere we all want to be&rdquo;.</p>
+    <h3>Why not just pick the middle</h3>
+    <p>The midpoint of a map can land somewhere with no transit at all. It also assumes
+    everyone is equally well connected, and they rarely are: transit runs in spokes, so
+    two people the same distance out can face very different trips, one direct and one
+    with two changes. And the middle is not the same as fair, or as somewhere the group
+    actually wants to be.</p>
 
     <h3>What it does</h3>
     <ol>
-      <li><strong>Samples real places.</strong> Candidate neighbourhoods along the
-      corridor between the two people furthest apart &mdash; not grid points, which can
-      land in the middle of a lake.</li>
-      <li><strong>Asks Google what each trip costs.</strong> Every person is routed in
-      their own travel mode, giving real travel time and transfer counts.</li>
-      <li><strong>Drops anything over your limits</strong>, for anyone. If nothing
-      survives, it tells you the smallest change that would help.</li>
-      <li><strong>Finds venues</strong> in the surviving neighbourhoods matching what
-      the group is up for.</li>
-      <li><strong>Scores and validates</strong>, then checks the top picks are actually
-      open and not permanently closed before showing them.</li>
+      <li><strong>Samples real neighbourhoods</strong> along the corridor between the
+      two people furthest apart, rather than arbitrary points on a map.</li>
+      <li><strong>Asks Google for every trip.</strong> Each person gets a real travel
+      time and transfer count, in their own travel mode.</li>
+      <li><strong>Drops anything over your limits</strong>, for anyone. If nothing is
+      left, it tells you the smallest change that would fix it.</li>
+      <li><strong>Searches Google Places</strong> for venues in the neighbourhoods that
+      survive, matching what the group is up for.</li>
+      <li><strong>Ranks them on fairness, fit, and Google Maps rating</strong>, then
+      confirms the top three are open and still in business.</li>
     </ol>
 
-    <h3>How &ldquo;fair&rdquo; is calculated</h3>
-    <p>Two definitions, and the toggle genuinely changes the answer &mdash; it reaches
-    all the way back into where the search looks, not just how results are sorted.</p>
+    <h3>How &ldquo;fair&rdquo; is measured</h3>
+    <p>Two options, and the toggle genuinely changes the answer. It affects where the
+    search looks, not just how the results are sorted.</p>
     <ul>
-      <li><strong>Minimize the gap</strong> &mdash; scores the spread between the
-      best-off and worst-off person, with a penalty on the longest single trip so a
-      uniformly awful journey can&rsquo;t win just by being even.</li>
-      <li><strong>Minimize total travel time</strong> &mdash; the least combined time,
-      accepting that one person may draw the short straw.</li>
+      <li><strong>Minimize the gap</strong> measures the spread between the best-off and
+      worst-off person. A penalty on the longest single trip stops a uniformly awful
+      journey from winning just by being even.</li>
+      <li><strong>Minimize total travel time</strong> takes the least combined time, and
+      accepts that one person may draw the short straw.</li>
     </ul>
 
     <h3>How the ranking works</h3>
-    <p>Three components, each scored 0&ndash;100% on an <em>absolute</em> scale, then
-    weighted by your sliders:</p>
+    <p>Three parts, each scored from 0 to 100 percent on a fixed scale, then weighted by
+    your sliders.</p>
     <ul>
-      <li><strong>Fairness</strong> &mdash; how much worse than the best available
-      option, measured in minutes.</li>
-      <li><strong>Preference</strong> &mdash; how well the venue matches what you asked
-      for. Ratings are weighted by review count, so a 5.0 from 30 reviews doesn&rsquo;t
-      beat a 4.5 from 900.</li>
-      <li><strong>Transfers</strong> &mdash; only counted for people actually on
-      transit; a drive or a walk has none.</li>
+      <li><strong>Fairness:</strong> how many minutes worse this is than the best option
+      available.</li>
+      <li><strong>Match:</strong> how closely the venue fits what you asked for,
+      combined with its <strong>Google Maps rating</strong>. A rating counts for more
+      when more people left one, so a 5.0 from 30 reviews ranks below a 4.5 from 900.
+      A poor rating from a handful of reviews is not rescued by the small sample either.</li>
+      <li><strong>Transfers:</strong> counted only for people actually on transit. A
+      drive or a walk has none.</li>
     </ul>
-    <p class="dialog-note">Absolute scales matter here: grading on a curve would
-    stretch a four-minute difference into the whole range and let it dominate
-    everything else.</p>
+    <p class="dialog-note">The scales are fixed rather than graded on a curve. Grading on
+    a curve would stretch a four-minute difference across the whole range and let it
+    drown out everything else.</p>
 
     <h3>Worth knowing</h3>
     <ul>
-      <li>Travel times are measured to the neighbourhood, not the exact doorstep &mdash;
-      venues are kept within 1.2&nbsp;km of it, so expect a few minutes&rsquo; walk.</li>
-      <li>Scheduled transit data, not live delays.</li>
-      <li>A mixed group compares time, not effort: a 20-minute drive and a 20-minute
+      <li>Travel times are measured to the neighbourhood, not the exact doorstep. Venues
+      are kept within 1.2&nbsp;km of it, so expect a few minutes&rsquo; walk.</li>
+      <li>Transit data is scheduled, not live, so it will not know about today&rsquo;s
+      delays.</li>
+      <li>A mixed group compares time, not effort. A 20-minute drive and a 20-minute
       walk score the same.</li>
     </ul>
 

@@ -301,7 +301,7 @@ function syncTransferControls() {
   const modeList = [...new Set(parties.map((p) => MODE_SHORT[p.mode] || p.mode))].join(" / ");
   $("#transferNote").textContent = applies
     ? ""
-    : `Not applicable — ${modeList} have no transfers.`;
+    : `Not applicable: ${modeList} have no transfers.`;
   resplitForModeChange();
   syncOutputs();
 }
@@ -450,7 +450,7 @@ function renderDetail(data) {
   const specLine = spec
     ? `<p><strong>Interpreted your interests as:</strong> ${escapeHtml(spec.place_types.join(", "))}
        ${spec.text_query ? `<br>Text search: “${escapeHtml(spec.text_query)}”` : ""}
-       <br><span class="hint">source: ${escapeHtml(spec.source)} — ${escapeHtml(spec.rationale)}</span></p>`
+       <br><span class="hint">source: ${escapeHtml(spec.source)} · ${escapeHtml(spec.rationale)}</span></p>`
     : "";
   const inactive = (data.results[0] && data.results[0].scores.inactive) || [];
   const inactiveLine = inactive.length

@@ -11,14 +11,14 @@ interface shows is traceable to one of the formulas below.
 
 ## 1. Why not a midpoint?
 
-The obvious algorithm — average the two coordinates, search near the result — 
-fails in three specific ways:
+The obvious algorithm, averaging the two coordinates and searching near the
+result, fails in three specific ways:
 
 1. **The midpoint may be unreachable.** Between Ballard and Columbia City in
    Seattle, the geographic midpoint lands near the water and industrial rail
    yards, with no useful transit connection from either side.
 2. **It ignores asymmetric transport.** Transit networks are radial. Two people
-   equidistant from a point can have wildly different journeys to it — one on a
+   equidistant from a point can have wildly different journeys to it: one on a
    direct line, one making two transfers.
 3. **It optimises nothing.** "Halfway" is not the same as "fair", and neither is
    the same as "somewhere we both want to be".
@@ -64,7 +64,7 @@ object rather than missing keys.
 
 ---
 
-## 3. Node 0 — the transit-aware search area
+## 3. Node 0: the transit-aware search area
 
 **Goal:** find the zone where both people's travel costs are balanced *and* low,
 without spending a routing call on every neighbourhood in the city.
@@ -72,7 +72,7 @@ without spending a routing call on every neighbourhood in the city.
 ### 3.1 Candidate generation
 
 With more than two parties the corridor is anchored on the **two people furthest
-apart** — everyone else falls inside that span, so it remains the widest
+apart**. Everyone else falls inside that span, so it remains the widest
 meaningful search band.
 
 Candidates are drawn from a seeded list of ~50 Seattle-area neighbourhood
@@ -91,7 +91,7 @@ Two filters define the corridor between the two people:
 Survivors are sorted by distance from the straight-line midpoint and the nearest
 `SWEEP_LIMIT` (16) are kept. Outside the seeded bounding box the system falls
 back to a generated 5×3 corridor grid plus reverse geocoding, so it is not
-Seattle-only — Seattle is just where it has good priors.
+Seattle-only. Seattle is just where it has good priors.
 
 ### 3.2 The balance sweep
 
@@ -110,7 +110,7 @@ absolute mode:  cost(c) = Σ tᵢ(c)
 ```
 
 For two people the spread reduces to |t₁ − t₂|, so this is a strict
-generalisation — existing two-party behaviour is unchanged.
+generalisation, so existing two-party behaviour is unchanged.
 
 Candidates unreachable from either side are dropped as dead zones. The lowest
 cost defines the search-area centre; the best `max_candidate_neighbourhoods`
@@ -121,11 +121,11 @@ cost defines the search-area centre; the best `max_candidate_neighbourhoods`
 Node 0, the two modes genuinely explore different areas rather than re-sorting
 one candidate set. Switching modes on a Ballard↔Columbia City transit search
 moves the answer from Belltown (43/44 min, 1 min gap) to Fremont (24/56 min,
-80 min combined — 7 minutes less total, at the cost of a 32-minute gap).
+80 min combined, 7 minutes less in total, at the cost of a 32-minute gap).
 
 ---
 
-## 4. Nodes A and B — per-person reachability
+## 4. Nodes A and B: per-person reachability
 
 One **Directions** call per person per surviving neighbourhood (N × 8),
 fanned out concurrently behind a semaphore. Each person travels in their own
@@ -139,7 +139,7 @@ transfers = max(0, count(transit_steps) − 1)
 ```
 
 Two transit steps (bus 40, then Link 2 Line) is one transfer. Non-transit modes
-always yield 0 — a drive has no transfers — which is what makes the transfer
+always yield 0, since a drive has no transfers, which is what makes the transfer
 budget conditional throughout the rest of the graph.
 
 An unroutable neighbourhood returns an unreachable leg rather than raising, so
@@ -147,7 +147,7 @@ one dead candidate cannot sink the request.
 
 ---
 
-## 5. Node C — shortlist and fairness
+## 5. Node C: shortlist and fairness
 
 Fan-in from A and B. A neighbourhood survives only if, for **every** person:
 
@@ -170,7 +170,7 @@ actually feels unfair in a group: one person making a 50-minute trek while
 everyone else strolls 10 minutes is the failure mode, regardless of who sits in
 between.
 
-Higher is better — both branches are negated costs. The `−k · max(t₁,t₂)` term is
+Higher is better, since both branches are negated costs. The `−k · max(t₁,t₂)` term is
 a **ceiling**: without it, gap mode is indifferent between a 15/20 split and a
 40/40 one, since the latter has a smaller gap.
 
@@ -196,7 +196,7 @@ relaxation that would have helped:
 
 ---
 
-## 6. Node D — venue discovery
+## 6. Node D: venue discovery
 
 ### 6.1 Interpreting what people want
 
@@ -209,7 +209,7 @@ Three paths, recorded in `preference_spec.source` so the output is auditable:
 | Free text, no LLM key | `text-only` | The text goes straight to Places text search |
 
 The `text-only` path exists because Places' text endpoint accepts natural
-language directly — "running trail" returns Elliott Bay Trail with no model
+language directly, so "running trail" returns Elliott Bay Trail with no model
 involved. The LLM is strictly an upgrade, never a dependency; every path
 degrades to a working search.
 
@@ -218,7 +218,7 @@ degrades to a working search.
 Travel times are measured to a **centroid**, so a venue must genuinely be near
 that centroid or the time displayed beside it is not its own.
 
-Places' `locationBias` is only a hint — Google will return a venue kilometres
+Places' `locationBias` is only a hint. Google will return a venue kilometres
 outside it. In one live run this filed a trail in Ballard, a park in Belltown,
 and one in Montlake all under South Lake Union, each shown with SLU's 13-minute
 drive time when the true drive was 26. Two defences now apply:
@@ -242,7 +242,7 @@ quality = clamp((shrunk − 3.0) / 2.0, 0, 1)
 ```
 
 The cap is essential. Pure shrinkage is symmetric, so it lifts a 2.3-star venue
-with 4 reviews to an effective 4.13 — statistically defensible, practically
+with 4 reviews to an effective 4.13, which is statistically defensible but practically
 absurd, and it put a 2.3-star trail in first place. Shrinkage may temper a thin
 rating; it must not launder a bad one.
 
@@ -254,7 +254,7 @@ rating; it must not launder a bad one.
 | 4.6 × 4892 | 0.796 |
 
 **Type matching** weights the primary Places type above incidental tags, because
-Google tags generously — a banh mi restaurant carrying a `cafe` tag was
+Google tags generously, and a banh mi restaurant carrying a `cafe` tag was
 outranking actual cafés:
 
 ```
@@ -266,7 +266,7 @@ score = 0.60 · type_match + 0.25 · quality + 0.15 · keyword
 ```
 
 With no categories selected there are no types to match, so the text-only branch
-leans on quality instead — Google's text endpoint has already guaranteed
+leans on quality instead. Google's text endpoint has already guaranteed
 topical relevance, making a literal name match a tiebreaker rather than the
 main signal:
 
@@ -276,7 +276,7 @@ score = 0.35 · keyword + 0.65 · quality
 
 ---
 
-## 7. Node E — scoring
+## 7. Node E: scoring
 
 Three components combine into one number. The important design decision is that
 each is mapped onto 0–1 with an **absolute** scale, not min–max normalisation
@@ -289,7 +289,7 @@ across the full range, so when every candidate sits within a few minutes of ever
 other, trivial differences become the dominant signal.
 
 Observed live: candidates spanning **four minutes** of driving produced a 0.79
-fairness spread. That buried the best-matching venue — a 4.9★ waterfront trail —
+fairness spread. That buried the best-matching venue, a 4.9★ waterfront trail,
 at rank 7, behind six near-identical parks including a 4.3★ walkway with three
 reviews, all to save four minutes.
 
@@ -302,7 +302,7 @@ transfers   = clamp(1 − total_transfers / R, 0, 1)                R = 4
 ```
 
 Fairness is anchored at the best available option and decays linearly, reaching
-zero once a candidate is 15 minutes-equivalent worse. Preference is used as-is —
+zero once a candidate is 15 minutes-equivalent worse. Preference is used as-is, because
 stretching it would destroy the meaning the LLM or heuristic assigned. Transfers
 is graded against a fixed reference, so a door-to-door trip scores 1.0 regardless
 of how good or bad the alternatives happen to be.
@@ -327,20 +327,20 @@ final = Σ wᵢ · componentᵢ,  weights normalised over the active components
 ```
 
 With nobody on transit there are no transfers to weigh, so that component is
-excluded and its weight redistributed proportionally across the rest — recorded
+excluded and its weight redistributed proportionally across the rest, recorded
 in `scores.inactive` so the interface can grey it out rather than display a
 misleading value. On an absolute scale no other exclusion is needed: a component
 that doesn't vary simply adds a constant to every venue and distorts nothing.
 
 ---
 
-## 8. Node F — validation
+## 8. Node F: validation
 
 Hard constraints that a weighted score must not be allowed to override:
 
 - `businessStatus` is not `CLOSED_PERMANENTLY` or `CLOSED_TEMPORARILY`
 - if the user asked for currently-open places, `openNow` is not `false`
-  (unknown hours pass — absence of data is not evidence of closure)
+  (unknown hours pass, since absence of data is not evidence of closure)
 - budgets re-checked
 - no duplicate `place_id`
 
@@ -354,9 +354,9 @@ than an empty result.
 
 | SKU | Calls/search | Why |
 |---|---:|---|
-| Distance Matrix | N × 16 | one request per person × 16 candidates — **billed per element** |
+| Distance Matrix | N × 16 | one request per person × 16 candidates, **billed per element** |
 | Directions | N × 8 | each person routed to each surviving neighbourhood |
-| Places Nearby/Text | 5 | 5 neighbourhoods searched — independent of N |
+| Places Nearby/Text | 5 | 5 neighbourhoods searched, independent of N |
 | Place Details / Geocoding | N | one per address |
 
 Cost scales linearly with the party count; only the venue search is fixed:
@@ -401,10 +401,10 @@ Geocoding call it would otherwise have made.
 - **Scheduled transit data**, not live disruptions.
 - **Five parties maximum.** Beyond that the corridor between the two furthest
   people stops describing a useful search region, and the per-search cost grows
-  uncomfortably — Node 0's candidate generation would need a different shape
+  uncomfortably. Node 0's candidate generation would need a different shape
   (a centroid-seeded disc, or clustering) rather than a corridor.
 - **The corridor is anchored on the two extremes.** With parties clustered
-  unevenly — four people downtown and one in Redmond — the corridor is dominated
+  unevenly, say four people downtown and one in Redmond, the corridor is dominated
   by the outlier, and the balance point drifts toward them. That is arguably
   correct under gap fairness, but it is a geometric consequence rather than a
   deliberate choice.
