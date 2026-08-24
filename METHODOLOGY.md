@@ -1,6 +1,6 @@
 # Methodology
 
-How Not-So-Mid-Point decides where two people should meet.
+How Not-So-Mid-Point decides where a group of two to five people should meet.
 
 The short version: it never computes a geographic midpoint. It samples real
 places, asks Google what each person's journey to each of them actually costs,
@@ -36,21 +36,27 @@ as it flows:
 ```mermaid
 graph LR
     S((start)) --> N0[Node 0<br/>Search area]
-    N0 --> A[Node A<br/>P1 reachability]
-    N0 --> B[Node B<br/>P2 reachability]
+    N0 --> A[reach_person1]
+    N0 --> B[reach_person2]
+    N0 --> C3[reach_person3..5]
     A --> C[Node C<br/>Shortlist + fairness]
     B --> C
+    C3 --> C
     C --> D[Node D<br/>Venue discovery]
     D --> E[Node E<br/>Scoring]
     E --> F[Node F<br/>Validation]
     F --> Z((top 3))
 ```
 
-Nodes A and B are the reason this is a graph rather than a loop: they are
-independent, IO-bound, and run in the same superstep. They write to disjoint
-state keys (`person1_reachability` / `person2_reachability`); the two keys they
-*do* share (`warnings`, `timings`) carry commutative reducers, so concurrent
-writes merge rather than race.
+The reachability nodes are the reason this is a graph rather than a loop: they
+are independent, IO-bound, and run in the same superstep. There is a **static
+node per party slot** (five, `MAX_PARTIES`) rather than one looping node, so the
+parallelism stays genuine no matter how many people are involved. A slot with
+nobody in it returns immediately and costs nothing.
+
+Each writes only its own index into `reachability`, a dict carrying a union
+reducer, so concurrent writes merge rather than race. `warnings` and `timings`
+carry commutative reducers for the same reason.
 
 Any node may set `failure` and short-circuit the rest. Downstream nodes check it
 and return immediately, so a failed run still emerges with a well-formed state
@@ -64,6 +70,10 @@ object rather than missing keys.
 without spending a routing call on every neighbourhood in the city.
 
 ### 3.1 Candidate generation
+
+With more than two parties the corridor is anchored on the **two people furthest
+apart** — everyone else falls inside that span, so it remains the widest
+meaningful search band.
 
 Candidates are drawn from a seeded list of ~50 Seattle-area neighbourhood
 centroids, not from a geometric grid. A grid point can land in Lake Washington;
@@ -85,8 +95,8 @@ Seattle-only — Seattle is just where it has good priors.
 
 ### 3.2 The balance sweep
 
-Two **Distance Matrix** requests — one per person, each covering all 16
-candidates at once. This is a deliberate departure from the obvious choice of
+One **Distance Matrix** request per person, each covering all 16 candidates at
+once, all issued concurrently. This is a deliberate departure from the obvious choice of
 Directions: Node 0 only needs durations to locate the balance point, and
 transfer counts don't matter until Nodes A/B. One request per person instead of
 16 turns a ~32-call sweep into 2 calls.
@@ -95,9 +105,12 @@ Each candidate is scored by a cost that mirrors the user's chosen fairness
 definition, so Node 0 searches for the same thing the final scorer rewards:
 
 ```
-gap mode:       cost(c) = |t₁(c) − t₂(c)| + k · max(t₁(c), t₂(c))
-absolute mode:  cost(c) = t₁(c) + t₂(c)
+gap mode:       cost(c) = (max tᵢ(c) − min tᵢ(c)) + k · max tᵢ(c)
+absolute mode:  cost(c) = Σ tᵢ(c)
 ```
+
+For two people the spread reduces to |t₁ − t₂|, so this is a strict
+generalisation — existing two-party behaviour is unchanged.
 
 Candidates unreachable from either side are dropped as dead zones. The lowest
 cost defines the search-area centre; the best `max_candidate_neighbourhoods`
@@ -114,7 +127,7 @@ moves the answer from Belltown (43/44 min, 1 min gap) to Fremont (24/56 min,
 
 ## 4. Nodes A and B — per-person reachability
 
-One **Directions** call per person per surviving neighbourhood (2 × 8 = 16),
+One **Directions** call per person per surviving neighbourhood (N × 8),
 fanned out concurrently behind a semaphore. Each person travels in their own
 mode: `transit`, `driving`, `bicycling`, or `walking`.
 
@@ -136,7 +149,7 @@ one dead candidate cannot sink the request.
 
 ## 5. Node C — shortlist and fairness
 
-Fan-in from A and B. A neighbourhood survives only if, for **both** people:
+Fan-in from A and B. A neighbourhood survives only if, for **every** person:
 
 - a route exists,
 - `duration ≤ max_time_min`,
@@ -148,9 +161,14 @@ who has none to begin with.
 ### 5.1 The fairness function
 
 ```
-gap mode:       fairness_raw = −|t₁ − t₂| − k · max(t₁, t₂)
-absolute mode:  fairness_raw = −(t₁ + t₂)
+gap mode:       fairness_raw = −(max tᵢ − min tᵢ) − k · max tᵢ
+absolute mode:  fairness_raw = −Σ tᵢ
 ```
+
+The spread between the best-off and worst-off person is the quantity that
+actually feels unfair in a group: one person making a 50-minute trek while
+everyone else strolls 10 minutes is the failure mode, regardless of who sits in
+between.
 
 Higher is better — both branches are negated costs. The `−k · max(t₁,t₂)` term is
 a **ceiling**: without it, gap mode is indifferent between a 15/20 split and a
@@ -336,13 +354,20 @@ than an empty result.
 
 | SKU | Calls/search | Why |
 |---|---:|---|
-| Distance Matrix | 32 | 2 requests × 16 candidates — **billed per element** |
-| Directions | 16 | 2 people × 8 neighbourhoods |
-| Places Nearby/Text | 5 | 5 neighbourhoods searched |
-| Place Details / Geocoding | 2 | one per address |
+| Distance Matrix | N × 16 | one request per person × 16 candidates — **billed per element** |
+| Directions | N × 8 | each person routed to each surviving neighbourhood |
+| Places Nearby/Text | 5 | 5 neighbourhoods searched — independent of N |
+| Place Details / Geocoding | N | one per address |
 
-≈ **$0.41** per cold search; Distance Matrix elements are the binding free-tier
-constraint at roughly 312 searches/month. Responses are cached for 24 hours with
+Cost scales linearly with the party count; only the venue search is fixed:
+
+| Parties | Cost/search | Free searches/month |
+|---:|---:|---:|
+| 2 | $0.41 | 312 |
+| 3 | $0.54 | 208 |
+| 5 | $0.79 | 125 |
+
+Distance Matrix elements are the binding free-tier constraint throughout. Responses are cached for 24 hours with
 departure times bucketed by hour, so a repeated search costs nothing and returns
 in ~16 ms.
 
@@ -374,9 +399,17 @@ Geocoding call it would otherwise have made.
   1.2 km containment radius bounds the error at a few minutes' walk. Per-venue
   routing would cost one Directions call per venue.
 - **Scheduled transit data**, not live disruptions.
-- **Two people only.** The fairness functions generalise to *n* (gap becomes
-  max−min), but Node 0's corridor geometry assumes two endpoints.
+- **Five parties maximum.** Beyond that the corridor between the two furthest
+  people stops describing a useful search region, and the per-search cost grows
+  uncomfortably — Node 0's candidate generation would need a different shape
+  (a centroid-seeded disc, or clustering) rather than a corridor.
+- **The corridor is anchored on the two extremes.** With parties clustered
+  unevenly — four people downtown and one in Redmond — the corridor is dominated
+  by the outlier, and the balance point drifts toward them. That is arguably
+  correct under gap fairness, but it is a geometric consequence rather than a
+  deliberate choice.
 - **Seattle-tuned priors.** Elsewhere the generated-grid fallback works but
   produces coarser candidates.
 - **Mixed modes compare time, not effort.** A 20-minute drive and a 20-minute
-  walk score identically on fairness, which may not match intuition.
+  walk score identically on fairness, which may not match intuition. This grows
+  more noticeable with more parties, since a group is likelier to span modes.

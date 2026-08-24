@@ -19,8 +19,7 @@ def _entry(name="Capitol Hill", minutes=20, transfers=1) -> ShortlistEntry:
     return ShortlistEntry(
         neighbourhood=name,
         coords=LatLng(lat=47.62, lng=-122.32),
-        p1=leg,
-        p2=leg.model_copy(),
+        legs=[leg, leg.model_copy()],
         gap_min=0.0,
         max_min=minutes,
         total_min=minutes * 2,
@@ -54,6 +53,7 @@ def _state(candidates, **overrides):
         "ranked_venues": candidates,
         "categories": ["coffee"],
         "free_text": "",
+        "people": [],
     }
     state.update(overrides)
     return state

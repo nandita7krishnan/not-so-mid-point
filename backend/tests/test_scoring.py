@@ -9,18 +9,18 @@ K = 0.4
 
 def test_gap_fairness_prefers_shorter_trip_over_a_perfectly_even_long_one():
     """The PRD's own example: a 15/20 split should beat a 'fair' 40/40."""
-    assert fairness_raw(15, 20, "gap", K) > fairness_raw(40, 40, "gap", K)
+    assert fairness_raw([15, 20], "gap", K) > fairness_raw([40, 40], "gap", K)
 
 
 def test_gap_fairness_punishes_lopsided_trips():
-    assert fairness_raw(10, 50, "gap", K) < fairness_raw(30, 30, "gap", K)
+    assert fairness_raw([10, 50], "gap", K) < fairness_raw([30, 30], "gap", K)
 
 
 def test_absolute_mode_ignores_the_gap_entirely():
     # Same total, very different split: absolute mode scores them identically.
-    assert fairness_raw(10, 50, "absolute", K) == fairness_raw(30, 30, "absolute", K)
+    assert fairness_raw([10, 50], "absolute", K) == fairness_raw([30, 30], "absolute", K)
     # ...which is exactly what the gap mode does not do.
-    assert fairness_raw(10, 50, "gap", K) != fairness_raw(30, 30, "gap", K)
+    assert fairness_raw([10, 50], "gap", K) != fairness_raw([30, 30], "gap", K)
 
 
 def test_fairness_score_is_scale_aware():

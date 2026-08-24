@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.geo import haversine_m  # noqa: E402
-from app.state import LatLng, Leg, Location  # noqa: E402
+from app.state import LatLng, Leg, Location, Person  # noqa: E402
 
 
 # Rough minutes-per-km and fixed overhead per mode, so the fake behaves the way
@@ -46,6 +46,9 @@ class FakeMaps:
             "ballard": (47.6685, -122.3835),
             "columbia city": (47.5595, -122.2855),
             "redmond": (47.6740, -122.1215),
+            "capitol hill": (47.6229, -122.3212),
+            "west seattle": (47.5610, -122.3870),
+            "greenwood": (47.6905, -122.3550),
         }
         for key, (lat, lng) in known.items():
             if key in address.lower():
@@ -122,6 +125,21 @@ class FakeMaps:
 
     async def aclose(self) -> None:
         pass
+
+
+async def make_people(fake: "FakeMaps", *specs) -> list[Person]:
+    """specs: (address, mode) tuples, or bare addresses defaulting to transit."""
+    people = []
+    for i, spec in enumerate(specs):
+        address, mode = spec if isinstance(spec, tuple) else (spec, "transit")
+        people.append(
+            Person(
+                label=f"Person {i + 1}",
+                location=await fake.geocode(address),
+                mode=mode,
+            )
+        )
+    return people
 
 
 @pytest.fixture

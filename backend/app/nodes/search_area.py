@@ -35,6 +35,20 @@ from ..state import (
 SWEEP_LIMIT = 16
 
 
+def _extreme_pair(locations: list[Location]) -> tuple[Location, Location]:
+    """The two locations furthest apart -- the corridor's endpoints."""
+    if len(locations) == 2:
+        return locations[0], locations[1]
+    best = (locations[0], locations[1])
+    widest = -1.0
+    for i, a in enumerate(locations):
+        for b in locations[i + 1 :]:
+            span = haversine_m(a.coords, b.coords)
+            if span > widest:
+                widest, best = span, (a, b)
+    return best
+
+
 def _corridor_candidates(p1: LatLng, p2: LatLng, half_width_km: float) -> list[Neighbourhood]:
     """Seeded neighbourhoods lying in the corridor between the two people.
 
@@ -87,12 +101,13 @@ async def _generated_candidates(
     return out[:SWEEP_LIMIT]
 
 
-def _balance_cost(t1: float, t2: float, mode: str, k: float) -> float:
+def _balance_cost(times: list[float], mode: str, k: float) -> float:
     """Lower is better. Mirrors the Section 7 fairness definitions so Node 0
-    searches for the same thing the final scorer will reward."""
+    searches for the same thing the final scorer will reward. Generalises to any
+    number of parties: the gap becomes the spread between best- and worst-off."""
     if mode == "absolute":
-        return t1 + t2
-    return abs(t1 - t2) + k * max(t1, t2)
+        return sum(times)
+    return (max(times) - min(times)) + k * max(times)
 
 
 async def search_area_node(state: MeetingState, config: dict) -> dict:
@@ -100,18 +115,21 @@ async def search_area_node(state: MeetingState, config: dict) -> dict:
     deps = deps_from_config(config)
     settings = get_settings()
 
-    p1: Location = state["person1_location"]
-    p2: Location = state["person2_location"]
+    people = state["people"]
     departure = state["departure_time"]
     mode = state.get("fairness_mode", "gap")
 
+    # The corridor is defined by the two people furthest apart; everyone else
+    # sits inside that span, so this stays the widest meaningful search band.
+    anchor_a, anchor_b = _extreme_pair([p.location for p in people])
+
     candidates = _corridor_candidates(
-        p1.coords, p2.coords, settings.corridor_half_width_km
-    ) if (in_seeded_area(p1.coords) or in_seeded_area(p2.coords)) else []
+        anchor_a.coords, anchor_b.coords, settings.corridor_half_width_km
+    ) if any(in_seeded_area(p.location.coords) for p in people) else []
     used_seed = bool(candidates)
     if not candidates:
         candidates = await _generated_candidates(
-            p1.coords, p2.coords, settings.corridor_half_width_km, deps.maps
+            anchor_a.coords, anchor_b.coords, settings.corridor_half_width_km, deps.maps
         )
 
     if not candidates:
@@ -125,24 +143,28 @@ async def search_area_node(state: MeetingState, config: dict) -> dict:
         }
 
     coords = [c.coords for c in candidates]
-    mode1 = state.get("person1_mode", "transit")
-    mode2 = state.get("person2_mode", "transit")
-    t1_list, t2_list = await asyncio.gather(
-        deps.maps.travel_durations(p1.coords, coords, departure, mode1),
-        deps.maps.travel_durations(p2.coords, coords, departure, mode2),
+    # One Distance Matrix request per person, all issued concurrently.
+    per_person = await asyncio.gather(
+        *(
+            deps.maps.travel_durations(person.location.coords, coords, departure, person.mode)
+            for person in people
+        )
     )
 
-    scored: list[tuple[float, Neighbourhood, float, float]] = []
-    for cand, t1, t2 in zip(candidates, t1_list, t2_list):
-        if t1 is None or t2 is None:
-            continue  # unreachable from one side in their mode: a dead zone
-        scored.append((_balance_cost(t1, t2, mode, settings.fairness_ceiling_k), cand, t1, t2))
+    scored: list[tuple[float, Neighbourhood, list[float]]] = []
+    for index, cand in enumerate(candidates):
+        times = [durations[index] for durations in per_person]
+        if any(t is None for t in times):
+            continue  # unreachable for someone in their mode: a dead zone
+        scored.append(
+            (_balance_cost(times, mode, settings.fairness_ceiling_k), cand, times)
+        )
 
     if not scored:
         return {
             "failure": GraphFailure(
                 node="search_area",
-                reason="No area between you is reachable from both locations.",
+                reason="No area between you is reachable from every starting point.",
                 suggestion=(
                     "This usually means one address has no service in the chosen travel "
                     "mode, or the two are too far apart for a single trip. Try a "
@@ -155,12 +177,12 @@ async def search_area_node(state: MeetingState, config: dict) -> dict:
 
     scored.sort(key=lambda row: row[0])
     keep = scored[: settings.max_candidate_neighbourhoods]
-    best_cost, best, best_t1, best_t2 = keep[0]
+    best_cost, best, best_times = keep[0]
     center = best.coords
 
-    # Radius has to cover every candidate we're passing on to Nodes A/B, since
-    # Node D searches for venues inside this area.
-    spread = max((haversine_m(center, cand.coords) for _, cand, _, _ in keep), default=0.0)
+    # Radius has to cover every candidate we're passing on to the reachability
+    # nodes, since Node D searches for venues inside this area.
+    spread = max((haversine_m(center, cand.coords) for _, cand, _ in keep), default=0.0)
     radius_m = int(max(1500, min(spread + 1200, 12000)))
 
     warnings: list[str] = []
@@ -171,16 +193,16 @@ async def search_area_node(state: MeetingState, config: dict) -> dict:
             "of you and were dropped."
         )
 
+    legs_note = ", ".join(
+        f"{minutes:.0f} min for {person.short_label}"
+        for person, minutes in zip(people, best_times)
+    )
     return {
         "search_area": SearchArea(
             center=center,
             radius_m=radius_m,
-            candidates=[cand for _, cand, _, _ in keep],
-            balance_note=(
-                f"Balance point near {best.name}: roughly {best_t1:.0f} min for "
-                f"{p1.label.split(',')[0]} and {best_t2:.0f} min for "
-                f"{p2.label.split(',')[0]}."
-            ),
+            candidates=[cand for _, cand, _ in keep],
+            balance_note=f"Balance point near {best.name}: roughly {legs_note}.",
         ),
         "warnings": warnings + ([] if used_seed else ["Using generated sample points (outside the seeded Seattle area)."]),
         "timings": {"search_area": time.perf_counter() - started},

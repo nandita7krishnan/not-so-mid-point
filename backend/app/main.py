@@ -20,14 +20,24 @@ from .graph import run_graph  # noqa: E402
 from .providers.llm import LLMClient  # noqa: E402
 from .providers.maps import MapsClient, MapsError  # noqa: E402
 from .runtime import RunDeps  # noqa: E402
-from .state import Budget, FairnessMode, LatLng, TravelMode, Weights, uses_transit  # noqa: E402
+from .state import (  # noqa: E402
+    MAX_PARTIES,
+    MIN_PARTIES,
+    Budget,
+    FairnessMode,
+    LatLng,
+    Person,
+    TravelMode,
+    Weights,
+    uses_transit,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-log = logging.getLogger("point-not-so-mid")
+log = logging.getLogger("not-so-mid-point")
 
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 
-app = FastAPI(title="Point-Not-So-Mid", version="1.0")
+app = FastAPI(title="Not-So-Mid-Point", version="1.0")
 
 
 class AutocompleteRequest(BaseModel):
@@ -35,18 +45,21 @@ class AutocompleteRequest(BaseModel):
     session: str = Field("", max_length=100)
 
 
-class RecommendRequest(BaseModel):
-    person1: str = Field(..., min_length=2, description="Person 1 starting address")
-    person2: str = Field(..., min_length=2, description="Person 2 starting address")
-    person1_mode: TravelMode = "transit"
-    person2_mode: TravelMode = "transit"
+class PartyRequest(BaseModel):
+    address: str = Field(..., min_length=2)
+    mode: TravelMode = "transit"
     # Set when the address came from the autocomplete dropdown. Resolving a
     # place_id is unambiguous and closes the billing session opened by typing,
     # so it replaces the Geocoding call entirely.
-    person1_place_id: str = ""
-    person2_place_id: str = ""
-    session1: str = ""
-    session2: str = ""
+    place_id: str = ""
+    session: str = ""
+    label: str = ""
+
+
+class RecommendRequest(BaseModel):
+    people: list[PartyRequest] = Field(
+        ..., min_length=MIN_PARTIES, max_length=MAX_PARTIES
+    )
     categories: list[str] = Field(default_factory=list)
     free_text: str = ""
     max_time_min: int = Field(45, ge=5, le=180)
@@ -64,6 +77,7 @@ async def health() -> dict[str, Any]:
     settings = get_settings()
     return {
         "ok": settings.maps_enabled,
+        "max_parties": MAX_PARTIES,
         "maps_configured": settings.maps_enabled,
         "llm_configured": settings.llm_enabled,
         "llm_model": settings.llm_model if settings.llm_enabled else None,
@@ -110,26 +124,29 @@ async def recommend(request: RecommendRequest) -> dict[str, Any]:
     maps = MapsClient()
     llm = LLMClient() if settings.llm_enabled else None
     try:
-        async def resolve(address: str, place_id: str, session: str):
-            if place_id:
-                return await maps.place_location(place_id, session)
-            return await maps.geocode(address)
+        async def resolve(party: PartyRequest):
+            if party.place_id:
+                return await maps.place_location(party.place_id, party.session)
+            return await maps.geocode(party.address)
 
         try:
-            p1, p2 = await asyncio.gather(
-                resolve(request.person1, request.person1_place_id, request.session1),
-                resolve(request.person2, request.person2_place_id, request.session2),
-            )
+            locations = await asyncio.gather(*(resolve(p) for p in request.people))
         except MapsError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        people = [
+            Person(
+                label=party.label or f"Person {i + 1}",
+                location=location,
+                mode=party.mode,
+            )
+            for i, (party, location) in enumerate(zip(request.people, locations))
+        ]
 
         try:
             state = await run_graph(
                 {
-                    "person1_location": p1,
-                    "person2_location": p2,
-                    "person1_mode": request.person1_mode,
-                    "person2_mode": request.person2_mode,
+                    "people": people,
                     "budget": Budget(
                         max_time_min=request.max_time_min,
                         max_transfers=request.max_transfers,
@@ -151,12 +168,10 @@ async def recommend(request: RecommendRequest) -> dict[str, Any]:
     failure = state.get("failure")
     return {
         "ok": failure is None,
-        "person1": p1.model_dump(),
-        "person2": p2.model_dump(),
+        "people": [person.model_dump() for person in people],
         "departure_time": departure,
         "fairness_mode": request.fairness_mode,
-        "modes": {"person1": request.person1_mode, "person2": request.person2_mode},
-        "transfers_apply": uses_transit(request.person1_mode, request.person2_mode),
+        "transfers_apply": uses_transit(*(person.mode for person in people)),
         "weights": request.weights.normalized().model_dump(),
         "search_area": _dump(state.get("search_area")),
         "shortlist": [e.model_dump() for e in state.get("shortlisted_neighbourhoods", [])],

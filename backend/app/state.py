@@ -42,6 +42,24 @@ class Location(BaseModel):
     coords: LatLng
 
 
+# Two is the interesting minimum; five is where the transit corridor stops being
+# a meaningful shape and the per-search API cost grows uncomfortable.
+MIN_PARTIES = 2
+MAX_PARTIES = 5
+
+
+class Person(BaseModel):
+    """One participant: where they start and how they travel."""
+
+    label: str
+    location: Location
+    mode: TravelMode = "transit"
+
+    @property
+    def short_label(self) -> str:
+        return self.location.label.split(",")[0]
+
+
 class Budget(BaseModel):
     max_time_min: int = Field(45, ge=5, le=180)
     max_transfers: int = Field(2, ge=0, le=5)
@@ -95,15 +113,17 @@ class Leg(BaseModel):
 class ShortlistEntry(BaseModel):
     neighbourhood: str
     coords: LatLng
-    p1: Leg
-    p2: Leg
+    # Index-aligned with `people`. Two parties or five, the maths is the same.
+    legs: list[Leg]
+    # For two people this is the difference between them; for more it is the
+    # spread between the best-off and worst-off person.
     gap_min: float
     max_min: float
     total_min: float
     total_transfers: int
     fairness_raw: float
-    # False when neither person is on transit, so the UI can explain why the
-    # transfers component is flat instead of showing a misleading 100%.
+    # False when nobody is on transit, so the UI can explain why the transfers
+    # component is flat instead of showing a misleading 100%.
     transfers_meaningful: bool = True
 
 
@@ -163,10 +183,7 @@ class GraphFailure(BaseModel):
 
 class MeetingState(TypedDict, total=False):
     # inputs
-    person1_location: Location
-    person2_location: Location
-    person1_mode: TravelMode
-    person2_mode: TravelMode
+    people: list[Person]
     budget: Budget
     weights: Weights
     fairness_mode: FairnessMode
@@ -177,8 +194,9 @@ class MeetingState(TypedDict, total=False):
 
     # accumulated by the graph
     search_area: SearchArea
-    person1_reachability: list[Leg]
-    person2_reachability: list[Leg]
+    # Written concurrently by the per-person reachability nodes, one key each,
+    # merged by dict union. Keys are indices into `people`.
+    reachability: Annotated[dict[int, list[Leg]], operator.or_]
     shortlisted_neighbourhoods: list[ShortlistEntry]
     preference_spec: PreferenceSpec
     candidate_venues: list[Venue]

@@ -146,3 +146,33 @@ button[type=submit]:disabled { opacity: .6; cursor: progress; }
 .suggestions .secondary { display: block; font-size: .78rem; color: var(--muted); }
 .suggestions .empty { color: var(--muted); font-size: .85rem; cursor: default; }
 .suggestions .empty:hover { background: transparent; }
+
+/* Party rows ----------------------------------------------------------- */
+#parties { display: grid; gap: .9rem; }
+.party {
+  display: grid; grid-template-columns: 1fr auto; gap: .5rem 1rem;
+  align-items: start; padding-bottom: .9rem; border-bottom: 1px dashed var(--line);
+}
+.party:last-child { border-bottom: 0; padding-bottom: 0; }
+.party .who { grid-column: 1 / -1; display: flex; align-items: baseline; gap: .5rem; }
+.party .who strong { font-size: .9rem; }
+.party .field { min-width: 0; }
+.party .modes { margin: .45rem 0 0; }
+.remove-party {
+  border: 1px solid var(--line); background: #fff; color: var(--muted);
+  border-radius: 8px; padding: .3rem .55rem; font-size: .78rem; cursor: pointer;
+  align-self: center;
+}
+.remove-party:hover { border-color: var(--p2); color: var(--p2); }
+.party-actions {
+  display: flex; align-items: center; gap: .75rem; margin-top: 1rem;
+}
+#addParty {
+  border: 1px dashed var(--line); background: transparent; color: var(--accent);
+  border-radius: 9px; padding: .5rem .9rem; font: 600 .875rem/1 inherit; cursor: pointer;
+}
+#addParty:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+#addParty:disabled { opacity: .45; cursor: not-allowed; color: var(--muted); }
+
+/* Result legs scale with the party count instead of assuming two. */
+.legs { grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); }

@@ -1,18 +1,16 @@
 """Per-person travel modes, and the transfer budget that only applies to transit."""
 import pytest
-from conftest import FakeMaps
+from conftest import FakeMaps, make_people
 
 from app.graph import run_graph
 from app.runtime import RunDeps
 from app.state import Budget, Weights, uses_transit
 
 
-async def _run(fake: FakeMaps, **overrides):
+async def _run(fake: FakeMaps, *, modes=("transit", "transit"), addresses=None, **overrides):
+    addresses = addresses or ("Ballard, Seattle", "Columbia City, Seattle")
     initial = {
-        "person1_location": await fake.geocode("Ballard, Seattle"),
-        "person2_location": await fake.geocode("Columbia City, Seattle"),
-        "person1_mode": "transit",
-        "person2_mode": "transit",
+        "people": await make_people(fake, *zip(addresses, modes)),
         "budget": Budget(max_time_min=60, max_transfers=3),
         "weights": Weights(),
         "fairness_mode": "gap",
@@ -32,35 +30,35 @@ def test_uses_transit_predicate():
 
 
 async def test_each_person_travels_in_their_own_mode(fake_maps):
-    state = await _run(fake_maps, person1_mode="driving", person2_mode="walking")
+    state = await _run(fake_maps, modes=("driving", "walking"))
 
-    assert {leg.mode for leg in state["person1_reachability"]} == {"driving"}
-    assert {leg.mode for leg in state["person2_reachability"]} == {"walking"}
+    assert {leg.mode for leg in state["reachability"][0]} == {"driving"}
+    assert {leg.mode for leg in state["reachability"][1]} == {"walking"}
 
 
 async def test_driving_beats_transit_for_the_same_person(fake_maps):
     transit = await _run(fake_maps)
-    driving = await _run(FakeMaps(), person1_mode="driving")
+    driving = await _run(FakeMaps(), modes=("driving", "transit"))
 
     def p1_time(state):
-        return state["final_top_3"][0].shortlist.p1.duration_min
+        return state["final_top_3"][0].shortlist.legs[0].duration_min
 
     assert p1_time(driving) < p1_time(transit)
 
 
 async def test_non_transit_legs_never_report_transfers(fake_maps):
-    state = await _run(fake_maps, person1_mode="driving", person2_mode="bicycling")
+    state = await _run(fake_maps, modes=("driving", "bicycling"))
 
     for entry in state["shortlisted_neighbourhoods"]:
-        assert entry.p1.transfers == 0
-        assert entry.p2.transfers == 0
+        assert entry.legs[0].transfers == 0
+        assert entry.legs[1].transfers == 0
         assert entry.transfers_meaningful is False
 
 
 async def test_transfer_budget_is_ignored_when_nobody_takes_transit(fake_maps):
     """A zero-transfer budget must not filter out drivers, who have no transfers."""
     state = await _run(
-        FakeMaps(), person1_mode="driving", person2_mode="driving",
+        FakeMaps(), modes=("driving", "driving"),
         budget=Budget(max_time_min=60, max_transfers=0),
     )
     assert state.get("failure") is None
@@ -72,20 +70,20 @@ async def test_transfer_budget_still_binds_on_the_transit_person(fake_maps):
     # km_per_transfer=2 makes the fake produce real transfer counts at these
     # distances, so the budget has something to actually bite on.
     strict = await _run(
-        FakeMaps(km_per_transfer=2), person1_mode="driving", person2_mode="transit",
+        FakeMaps(km_per_transfer=2), modes=("driving", "transit"),
         budget=Budget(max_time_min=60, max_transfers=0),
     )
     loose = await _run(
-        FakeMaps(km_per_transfer=2), person1_mode="driving", person2_mode="transit",
+        FakeMaps(km_per_transfer=2), modes=("driving", "transit"),
         budget=Budget(max_time_min=60, max_transfers=3),
     )
     for entry in strict["shortlisted_neighbourhoods"]:
-        assert entry.p2.transfers == 0
+        assert entry.legs[1].transfers == 0
     assert len(strict["shortlisted_neighbourhoods"]) < len(loose["shortlisted_neighbourhoods"])
 
 
 async def test_transfers_component_is_dropped_when_no_one_is_on_transit(fake_maps):
-    state = await _run(FakeMaps(), person1_mode="driving", person2_mode="walking")
+    state = await _run(FakeMaps(), modes=("driving", "walking"))
 
     scores = state["final_top_3"][0].scores
     assert "transfers" in scores.inactive

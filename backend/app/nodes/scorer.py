@@ -62,9 +62,7 @@ async def scorer_node(state: MeetingState, config: dict) -> dict:
     # The transfer component is the one genuine exclusion: with nobody on
     # transit there are no transfers to weigh, whatever the slider says, so its
     # weight is redistributed rather than contributing a flat constant.
-    transit_in_play = uses_transit(
-        state.get("person1_mode", "transit"), state.get("person2_mode", "transit")
-    )
+    transit_in_play = uses_transit(*(person.mode for person in state["people"]))
     inactive = [] if transit_in_play else ["transfers"]
 
     live = {"fairness": weights.fairness, "preference": weights.preference}

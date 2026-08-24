@@ -1,4 +1,4 @@
-/* Point-Not-So-Mid front end: form -> POST /api/recommend -> cards + map. */
+/* Not-So-Mid-Point front end: form -> POST /api/recommend -> cards + map. */
 
 const CATEGORIES = [
   ["coffee", "Coffee"], ["restaurant", "Food"], ["bar", "Bar"],
@@ -14,7 +14,12 @@ const MODES = [
   ["bicycling", "🚲 Bike"], ["walking", "🚶 Walk"],
 ];
 const MODE_SHORT = { transit: "transit", driving: "drive", bicycling: "bike", walking: "walk" };
-const selectedMode = { 1: "transit", 2: "transit" };
+const MIN_PARTIES = 2;
+const MAX_PARTIES = 5;
+const LEG_COLORS = ["#2f6f5e", "#a8563c", "#3d5a80", "#7a5a8c", "#8a6d1f"];
+
+/* One entry per participant. `field` is the AddressField bound to its input. */
+const parties = [];
 
 const WEIGHT_NAMES = ["fairness", "preference", "transfers"];
 // Source of truth for the weights. Always sums to 100 across the *active*
@@ -159,7 +164,7 @@ class AddressField {
   }
 }
 
-const addressFields = {};
+
 
 /* ---------------------------------------------------------------- form UI */
 function buildChips() {
@@ -178,32 +183,86 @@ function buildChips() {
   }
 }
 
-function buildModes() {
-  for (const host of document.querySelectorAll(".modes")) {
-    const person = host.dataset.person;
-    for (const [value, label] of MODES) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "mode";
-      button.textContent = label;
-      button.dataset.value = value;
-      button.setAttribute("aria-pressed", selectedMode[person] === value ? "true" : "false");
-      button.addEventListener("click", () => {
-        selectedMode[person] = value;
-        for (const sibling of host.children) {
-          sibling.setAttribute("aria-pressed", sibling === button ? "true" : "false");
-        }
-        syncTransferControls();
-      });
-      host.appendChild(button);
-    }
+function addParty(defaults = {}) {
+  if (parties.length >= MAX_PARTIES) return;
+  const index = parties.length;
+  const party = { mode: defaults.mode || "transit", field: null };
+  parties.push(party);
+
+  const row = document.createElement("div");
+  row.className = "party";
+  row.innerHTML = `
+    <div class="who">
+      <strong>Person ${index + 1}</strong>
+      <span class="hint" data-role="pill" style="color:${LEG_COLORS[index]}">&#9679;</span>
+    </div>
+    <div class="field">
+      <span class="typeahead">
+        <input placeholder="e.g. Ballard, Seattle" autocomplete="off" role="combobox"
+               aria-expanded="false" aria-autocomplete="list" aria-label="Person ${index + 1} starting address" required>
+        <ul class="suggestions" role="listbox" hidden></ul>
+      </span>
+      <div class="modes"></div>
+    </div>
+    <button type="button" class="remove-party" aria-label="Remove person">Remove</button>`;
+
+  const input = row.querySelector("input");
+  input.value = defaults.address || "";
+  party.field = new AddressField(input, row.querySelector(".suggestions"));
+
+  const modeHost = row.querySelector(".modes");
+  for (const [value, label] of MODES) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "mode";
+    button.textContent = label;
+    button.dataset.value = value;
+    button.setAttribute("aria-pressed", party.mode === value ? "true" : "false");
+    button.addEventListener("click", () => {
+      party.mode = value;
+      for (const sibling of modeHost.children) {
+        sibling.setAttribute("aria-pressed", sibling === button ? "true" : "false");
+      }
+      syncTransferControls();
+    });
+    modeHost.appendChild(button);
   }
+
+  row.querySelector(".remove-party").addEventListener("click", () => removeParty(party));
+  $("#parties").appendChild(row);
+  renumberParties();
+}
+
+function removeParty(party) {
+  if (parties.length <= MIN_PARTIES) return;
+  const index = parties.indexOf(party);
+  parties.splice(index, 1);
+  $("#parties").children[index].remove();
+  renumberParties();
+  syncTransferControls();
+}
+
+/* Labels, colours and the add/remove affordances all depend on the count. */
+function renumberParties() {
+  [...$("#parties").children].forEach((row, i) => {
+    row.querySelector(".who strong").textContent = `Person ${i + 1}`;
+    row.querySelector('[data-role="pill"]').style.color = LEG_COLORS[i];
+    row.querySelector("input").setAttribute("aria-label", `Person ${i + 1} starting address`);
+    row.querySelector(".remove-party").disabled = parties.length <= MIN_PARTIES;
+    row.querySelector(".remove-party").style.visibility =
+      parties.length <= MIN_PARTIES ? "hidden" : "visible";
+  });
+  $("#addParty").disabled = parties.length >= MAX_PARTIES;
+  $("#partyCount").textContent =
+    parties.length >= MAX_PARTIES
+      ? `${MAX_PARTIES} is the maximum`
+      : `${parties.length} people · up to ${MAX_PARTIES}`;
 }
 
 /* Transfers only exist on transit, so both the budget and the weight are
    disabled (and visibly explained) when neither person is riding. */
 function transfersApply() {
-  return selectedMode[1] === "transit" || selectedMode[2] === "transit";
+  return parties.some((party) => party.mode === "transit");
 }
 
 function syncTransferControls() {
@@ -214,9 +273,10 @@ function syncTransferControls() {
   weight.classList.toggle("inapplicable", !applies);
   form.max_transfers.disabled = !applies;
   form.w_transfers.disabled = !applies;
+  const modeList = [...new Set(parties.map((p) => MODE_SHORT[p.mode] || p.mode))].join(" / ");
   $("#transferNote").textContent = applies
     ? ""
-    : `Not applicable — ${MODE_SHORT[selectedMode[1]]} and ${MODE_SHORT[selectedMode[2]]} have no transfers.`;
+    : `Not applicable — ${modeList} have no transfers.`;
   resplitForModeChange();
   syncOutputs();
 }
@@ -322,12 +382,18 @@ function spotCard(item, index, people) {
       <p class="meta">${escapeHtml(venue.category)}${rating} · ${escapeHtml(s.neighbourhood)}<br>${escapeHtml(venue.address)}</p>
       <p class="why">${escapeHtml(item.why)}</p>
       <div class="legs">
-        <div class="leg p1"><span>${escapeHtml(people[0])}<span class="mode-tag">${escapeHtml(MODE_SHORT[s.p1.mode] || s.p1.mode)}</span></span><b>${minutes(s.p1.duration_min)}</b>
-          <span>${escapeHtml(transferLabel(s.p1))}${s.p1.summary ? ` · ${escapeHtml(s.p1.summary)}` : ""}</span></div>
-        <div class="leg p2"><span>${escapeHtml(people[1])}<span class="mode-tag">${escapeHtml(MODE_SHORT[s.p2.mode] || s.p2.mode)}</span></span><b>${minutes(s.p2.duration_min)}</b>
-          <span>${escapeHtml(transferLabel(s.p2))}${s.p2.summary ? ` · ${escapeHtml(s.p2.summary)}` : ""}</span></div>
+        ${s.legs
+          .map(
+            (leg, i) => `<div class="leg" style="border-color:${LEG_COLORS[i]}">
+              <span>${escapeHtml(people[i])}<span class="mode-tag">${escapeHtml(MODE_SHORT[leg.mode] || leg.mode)}</span></span>
+              <b>${minutes(leg.duration_min)}</b>
+              <span>${escapeHtml(transferLabel(leg))}${leg.summary ? ` · ${escapeHtml(leg.summary)}` : ""}</span>
+            </div>`
+          )
+          .join("")}
       </div>
-      <p class="gap">Difference between you: <strong>${minutes(s.gap_min)}</strong> · combined ${minutes(s.total_min)}${
+      <p class="gap">${s.legs.length > 2 ? "Spread across you" : "Difference between you"}:
+        <strong>${minutes(s.gap_min)}</strong> · combined ${minutes(s.total_min)}${
         s.transfers_meaningful ? ` · ${s.total_transfers} transfers total` : ""
       }</p>
       <div class="bars">
@@ -346,8 +412,10 @@ function shortName(label) {
 function renderDetail(data) {
   const rows = data.shortlist
     .map(
-      (e) => `<tr><td>${escapeHtml(e.neighbourhood)}</td><td>${minutes(e.p1.duration_min)}</td>
-      <td>${minutes(e.p2.duration_min)}</td><td>${minutes(e.gap_min)}</td><td>${e.total_transfers}</td></tr>`
+      (e) =>
+        `<tr><td>${escapeHtml(e.neighbourhood)}</td>` +
+        e.legs.map((leg) => `<td>${minutes(leg.duration_min)}</td>`).join("") +
+        `<td>${minutes(e.gap_min)}</td><td>${e.total_transfers}</td></tr>`
     )
     .join("");
   const timings = Object.entries(data.timings)
@@ -370,8 +438,9 @@ function renderDetail(data) {
     ${inactiveLine}
     ${specLine}
     <p><strong>Neighbourhoods that passed your limits (${data.shortlist.length}), best fairness first:</strong></p>
-    <table><thead><tr><th>Neighbourhood</th><th>${escapeHtml(shortName(data.person1.label))}</th>
-    <th>${escapeHtml(shortName(data.person2.label))}</th><th>Gap</th><th>Transfers</th></tr></thead>
+    <table><thead><tr><th>Neighbourhood</th>
+    ${data.people.map((p) => `<th>${escapeHtml(shortName(p.location.label))}</th>`).join("")}
+    <th>${data.people.length > 2 ? "Spread" : "Gap"}</th><th>Transfers</th></tr></thead>
     <tbody>${rows}</tbody></table>
     <p class="hint" style="margin-top:.75rem">${escapeHtml(timings)}</p>`;
 }
@@ -402,15 +471,13 @@ function drawMap(data) {
     });
 
   const points = [];
-  for (const [person, color, letter] of [
-    [data.person1, "#2f6f5e", "1"],
-    [data.person2, "#a8563c", "2"],
-  ]) {
-    L.marker([person.coords.lat, person.coords.lng], { icon: pin(color, letter) })
-      .bindPopup(escapeHtml(person.label))
+  data.people.forEach((person, i) => {
+    const { lat, lng } = person.location.coords;
+    L.marker([lat, lng], { icon: pin(LEG_COLORS[i], String(i + 1)) })
+      .bindPopup(escapeHtml(person.location.label))
       .addTo(layer);
-    points.push([person.coords.lat, person.coords.lng]);
-  }
+    points.push([lat, lng]);
+  });
 
   if (data.search_area) {
     L.circle([data.search_area.center.lat, data.search_area.center.lng], {
@@ -454,6 +521,13 @@ function escapeHtml(value) {
 /* --------------------------------------------------------------- request */
 async function submit(event) {
   event.preventDefault();
+  const blank = parties.find((party) => party.field.input.value.trim().length < 2);
+  if (blank) {
+    blank.field.input.focus();
+    showNotice("Missing a starting point", "Every person needs an address.");
+    return;
+  }
+
   const button = $("#submit");
   button.disabled = true;
   button.textContent = "Checking transit routes…";
@@ -461,17 +535,17 @@ async function submit(event) {
   statusBox.className = "panel";
   statusBox.innerHTML = `<p class="spinner">Sampling the corridor between you, then timing transit from both sides…</p>`;
 
-  const picked1 = addressFields.person1.commit();
-  const picked2 = addressFields.person2.commit();
   const payload = {
-    person1: form.person1.value,
-    person2: form.person2.value,
-    person1_place_id: picked1.placeId,
-    person2_place_id: picked2.placeId,
-    session1: picked1.session,
-    session2: picked2.session,
-    person1_mode: selectedMode[1],
-    person2_mode: selectedMode[2],
+    people: parties.map((party, i) => {
+      const picked = party.field.commit();
+      return {
+        address: party.field.input.value,
+        mode: party.mode,
+        place_id: picked.placeId,
+        session: picked.session,
+        label: `Person ${i + 1}`,
+      };
+    }),
     categories: selectedCategories(),
     free_text: form.free_text.value,
     max_time_min: Number(form.max_time_min.value),
@@ -500,7 +574,7 @@ async function submit(event) {
     }
 
     statusBox.className = "panel hidden";
-    const people = [shortName(data.person1.label), shortName(data.person2.label)];
+    const people = data.people.map((p) => shortName(p.location.label));
     results.innerHTML =
       data.results.map((item, i) => spotCard(item, i, people)).join("") + renderWarnings(data.warnings);
     renderDetail(data);
@@ -515,10 +589,12 @@ async function submit(event) {
 }
 
 buildChips();
-buildModes();
-for (const name of ["person1", "person2"]) {
-  addressFields[name] = new AddressField(form[name], $(`#ac-${name}`));
-}
+addParty({ address: "Ballard, Seattle, WA" });
+addParty({ address: "Columbia City, Seattle, WA" });
+$("#addParty").addEventListener("click", () => {
+  addParty();
+  syncTransferControls();
+});
 for (const name of WEIGHT_NAMES) {
   form[`w_${name}`].addEventListener("input", (event) =>
     rebalanceWeights(name, Number(event.target.value))

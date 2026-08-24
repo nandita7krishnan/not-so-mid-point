@@ -1,14 +1,13 @@
-"""Node C -- neighbourhood shortlist (fan-in from A and B).
+"""Node C -- neighbourhood shortlist (fan-in from every reachability node).
 
-Intersects the two reachability sets, drops anything failing the hard budget,
-and attaches the fairness score. When nothing survives, it does not return an
-empty list: it works out the smallest relaxation that would have helped and
-says so, which is the defined failure mode the PRD asks for.
+Intersects all parties' reachable neighbourhoods, drops anything failing the
+hard budget, and attaches the fairness score. When nothing survives it does not
+return an empty list: it works out the smallest relaxation that would have
+helped and says so.
 """
 from __future__ import annotations
 
 import time
-from typing import Optional
 
 from ..config import get_settings
 from ..state import (
@@ -16,40 +15,44 @@ from ..state import (
     GraphFailure,
     Leg,
     MeetingState,
+    Person,
     ShortlistEntry,
     uses_transit,
 )
 
 
-def fairness_raw(t1: float, t2: float, mode: str, k: float) -> float:
-    """Section 7. Higher is better (both branches are negated costs).
+def fairness_raw(times: list[float], mode: str, k: float) -> float:
+    """Section 7, generalised to any number of parties. Higher is better.
 
-    The `-k * max(t1, t2)` term is the ceiling that stops a fair-but-awful
-    40/40 split outranking a 15/20 one."""
+    With two people the spread is simply |t1 - t2|; with more it is the gap
+    between the best-off and worst-off person, which is the quantity that
+    actually feels unfair. The `-k * max` term is the ceiling that stops a
+    uniformly awful trip outranking a slightly uneven but much shorter one.
+    """
+    if not times:
+        return 0.0
     if mode == "absolute":
-        return -(t1 + t2)
-    return -abs(t1 - t2) - k * max(t1, t2)
+        return -sum(times)
+    return -(max(times) - min(times)) - k * max(times)
 
 
 def _relaxation_advice(
-    pairs: list[tuple[Leg, Leg]], budget: Budget
+    rows: list[list[Leg]], budget: Budget
 ) -> tuple[str, dict]:
     """Given that nothing passed, find the closest near-miss and describe it."""
-    reachable = [(a, b) for a, b in pairs if a.reachable and b.reachable]
+    reachable = [legs for legs in rows if all(leg.reachable for leg in legs)]
     if not reachable:
         return (
-            "No neighbourhood between you has a transit route from both starting points.",
+            "No neighbourhood between you has a route from every starting point.",
             {},
         )
 
-    def worst_time(pair: tuple[Leg, Leg]) -> float:
-        return max(pair[0].duration_min, pair[1].duration_min)
+    def worst_time(legs: list[Leg]) -> float:
+        return max(leg.duration_min for leg in legs)
 
-    def worst_transfers(pair: tuple[Leg, Leg]) -> int:
-        # A driving or walking leg has no transfers to count against the budget.
-        return max(leg.transfers for leg in pair if leg.mode == "transit") if any(
-            leg.mode == "transit" for leg in pair
-        ) else 0
+    def worst_transfers(legs: list[Leg]) -> int:
+        transit = [leg.transfers for leg in legs if leg.mode == "transit"]
+        return max(transit) if transit else 0
 
     best_time = min(reachable, key=worst_time)
     best_transfers = min(reachable, key=worst_transfers)
@@ -72,7 +75,7 @@ def _relaxation_advice(
     return "Try to " + ", or ".join(parts) + ".", {
         "min_max_time_min": round(needed_time, 1),
         "min_max_transfers": needed_transfers,
-        "reachable_both": len(reachable),
+        "reachable_all": len(reachable),
     }
 
 
@@ -84,52 +87,53 @@ async def shortlist_node(state: MeetingState, config: dict) -> dict:
     settings = get_settings()
     budget: Budget = state["budget"]
     mode = state.get("fairness_mode", "gap")
+    people: list[Person] = state["people"]
     area = state["search_area"]
     by_name = {c.name: c.coords for c in area.candidates}
 
-    transit_in_play = uses_transit(
-        state.get("person1_mode", "transit"), state.get("person2_mode", "transit")
-    )
+    transit_in_play = uses_transit(*(person.mode for person in people))
+    reach = state.get("reachability", {})
+    # index -> {neighbourhood -> Leg}
+    indexed = {
+        i: {leg.neighbourhood: leg for leg in reach.get(i, [])} for i in range(len(people))
+    }
 
-    p1_legs = {leg.neighbourhood: leg for leg in state.get("person1_reachability", [])}
-    p2_legs = {leg.neighbourhood: leg for leg in state.get("person2_reachability", [])}
-
-    pairs: list[tuple[Leg, Leg]] = []
+    rows: list[list[Leg]] = []
     entries: list[ShortlistEntry] = []
     for name, coords in by_name.items():
-        a, b = p1_legs.get(name), p2_legs.get(name)
-        if a is None or b is None:
+        legs = [indexed[i].get(name) for i in range(len(people))]
+        if any(leg is None for leg in legs):
             continue
-        pairs.append((a, b))
-        if not (a.reachable and b.reachable):
+        legs = [leg for leg in legs if leg is not None]
+        rows.append(legs)
+
+        if not all(leg.reachable for leg in legs):
             continue
-        if a.duration_min > budget.max_time_min or b.duration_min > budget.max_time_min:
+        if any(leg.duration_min > budget.max_time_min for leg in legs):
             continue
-        # The transfer budget only applies to whichever person is on transit.
+        # The transfer budget only applies to whoever is actually on transit.
         if any(
-            leg.mode == "transit" and leg.transfers > budget.max_transfers
-            for leg in (a, b)
+            leg.mode == "transit" and leg.transfers > budget.max_transfers for leg in legs
         ):
             continue
+
+        times = [leg.duration_min for leg in legs]
         entries.append(
             ShortlistEntry(
                 neighbourhood=name,
                 coords=coords,
-                p1=a,
-                p2=b,
-                gap_min=abs(a.duration_min - b.duration_min),
-                max_min=max(a.duration_min, b.duration_min),
-                total_min=a.duration_min + b.duration_min,
-                total_transfers=a.transfers + b.transfers,
+                legs=legs,
+                gap_min=max(times) - min(times),
+                max_min=max(times),
+                total_min=sum(times),
+                total_transfers=sum(leg.transfers for leg in legs),
+                fairness_raw=fairness_raw(times, mode, settings.fairness_ceiling_k),
                 transfers_meaningful=transit_in_play,
-                fairness_raw=fairness_raw(
-                    a.duration_min, b.duration_min, mode, settings.fairness_ceiling_k
-                ),
             )
         )
 
     if not entries:
-        suggestion, detail = _relaxation_advice(pairs, budget)
+        suggestion, detail = _relaxation_advice(rows, budget)
         return {
             "failure": GraphFailure(
                 node="shortlist",
@@ -141,7 +145,7 @@ async def shortlist_node(state: MeetingState, config: dict) -> dict:
                         if transit_in_play
                         else ""
                     )
-                    + " for both of you."
+                    + (" for both of you." if len(people) == 2 else f" for all {len(people)} of you.")
                 ),
                 suggestion=suggestion,
                 detail=detail,

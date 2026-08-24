@@ -26,12 +26,12 @@ def _rejection_reason(
     if require_open and venue.open_now is False:
         return f"{venue.name}: closed right now"
     entry = candidate.shortlist
-    if max(entry.p1.duration_min, entry.p2.duration_min) > budget.max_time_min:
+    if any(leg.duration_min > budget.max_time_min for leg in entry.legs):
         return f"{venue.name}: over the travel time budget on re-check"
     # Only transit legs can breach a transfer budget.
     if any(
         leg.mode == "transit" and leg.transfers > budget.max_transfers
-        for leg in (entry.p1, entry.p2)
+        for leg in entry.legs
     ):
         return f"{venue.name}: over the transfer budget on re-check"
     return None
@@ -40,15 +40,16 @@ def _rejection_reason(
 def _template_why(candidate: RankedVenue) -> str:
     entry = candidate.shortlist
     venue = candidate.venue
+    everyone = "both of you" if len(entry.legs) == 2 else f"all {len(entry.legs)} of you"
     fairness = (
-        "an even trip for both of you"
+        f"an even trip for {everyone}"
         if entry.gap_min < 5
-        else f"a {entry.gap_min:.0f} min difference between you"
+        else f"a {entry.gap_min:.0f} min spread between you"
     )
     if not entry.transfers_meaningful:
         # Nobody is on transit, so describe the modes instead of transfers.
         modes = " and ".join(
-            sorted({MODE_LABELS.get(leg.mode, leg.mode) for leg in (entry.p1, entry.p2)})
+            sorted({MODE_LABELS.get(leg.mode, leg.mode) for leg in entry.legs})
         )
         detail = f"by {modes}"
     elif entry.total_transfers == 0:
@@ -109,16 +110,20 @@ async def reviewer_node(state: MeetingState, config: dict) -> dict:
         pick.why = _template_why(pick)
 
     if deps.llm is not None:
+        people = state["people"]
+
+        def journeys(pick) -> str:
+            return "\n".join(
+                f"{person.label} ({MODE_LABELS.get(leg.mode, leg.mode)}): "
+                f"{leg.duration_min:.0f} min, {leg.transfers} transfers ({leg.summary})."
+                for person, leg in zip(people, pick.shortlist.legs)
+            )
+
         prompts = [
             (
                 f"Venue: {p.venue.name}, a {p.venue.category} in {p.shortlist.neighbourhood}"
                 + (f", rated {p.venue.rating} from {p.venue.rating_count} reviews" if p.venue.rating else "")
-                + f".\nPerson 1 ({MODE_LABELS.get(p.shortlist.p1.mode, p.shortlist.p1.mode)}): "
-                f"{p.shortlist.p1.duration_min:.0f} min, {p.shortlist.p1.transfers} transfers "
-                f"({p.shortlist.p1.summary}).\n"
-                f"Person 2 ({MODE_LABELS.get(p.shortlist.p2.mode, p.shortlist.p2.mode)}): "
-                f"{p.shortlist.p2.duration_min:.0f} min, {p.shortlist.p2.transfers} transfers "
-                f"({p.shortlist.p2.summary}).\n"
+                + f".\n{journeys(p)}\n"
                 f"They asked for: {state.get('free_text') or ', '.join(state.get('categories', [])) or 'anywhere'}.\n"
                 f"Preference note: {p.venue.preference_reason}\n\n"
                 "Write the one-sentence reason this spot suits them."

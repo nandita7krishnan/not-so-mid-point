@@ -1,16 +1,16 @@
 """End-to-end graph tests against the fake Maps client."""
 import pytest
-from conftest import FakeMaps
+from conftest import FakeMaps, make_people
 
 from app.graph import run_graph
 from app.runtime import RunDeps
 from app.state import Budget, Weights
 
 
-async def _run(fake: FakeMaps, **overrides):
+async def _run(fake: FakeMaps, *, modes=("transit", "transit"), addresses=None, **overrides):
+    addresses = addresses or ("Ballard, Seattle", "Columbia City, Seattle")
     initial = {
-        "person1_location": await fake.geocode("Ballard, Seattle"),
-        "person2_location": await fake.geocode("Columbia City, Seattle"),
+        "people": await make_people(fake, *zip(addresses, modes)),
         "budget": Budget(max_time_min=60, max_transfers=3),
         "weights": Weights(),
         "fairness_mode": "gap",
@@ -30,7 +30,7 @@ async def test_happy_path_returns_three_spots(fake_maps):
     assert len(state["final_top_3"]) == 3
     for pick in state["final_top_3"]:
         assert pick.venue.name
-        assert pick.shortlist.p1.reachable and pick.shortlist.p2.reachable
+        assert all(leg.reachable for leg in pick.shortlist.legs)
         assert pick.why  # Node F always produces copy, LLM or template
     # Ranked in descending final score.
     finals = [p.scores.final for p in state["final_top_3"]]
@@ -40,8 +40,8 @@ async def test_happy_path_returns_three_spots(fake_maps):
 async def test_search_area_lands_between_the_two_people(fake_maps):
     state = await _run(fake_maps)
     area = state["search_area"]
-    p1 = state["person1_location"].coords
-    p2 = state["person2_location"].coords
+    p1 = state["people"][0].location.coords
+    p2 = state["people"][1].location.coords
     assert min(p1.lat, p2.lat) <= area.center.lat <= max(p1.lat, p2.lat)
     assert area.candidates and area.radius_m > 0
 
@@ -49,15 +49,15 @@ async def test_search_area_lands_between_the_two_people(fake_maps):
 async def test_reachability_nodes_both_cover_every_candidate(fake_maps):
     state = await _run(fake_maps)
     names = {c.name for c in state["search_area"].candidates}
-    assert {leg.neighbourhood for leg in state["person1_reachability"]} == names
-    assert {leg.neighbourhood for leg in state["person2_reachability"]} == names
+    assert {leg.neighbourhood for leg in state["reachability"][0]} == names
+    assert {leg.neighbourhood for leg in state["reachability"][1]} == names
 
 
 async def test_hard_budget_is_enforced_by_the_shortlist(fake_maps):
     state = await _run(fake_maps, budget=Budget(max_time_min=25, max_transfers=3))
     for entry in state["shortlisted_neighbourhoods"]:
-        assert entry.p1.duration_min <= 25
-        assert entry.p2.duration_min <= 25
+        assert entry.legs[0].duration_min <= 25
+        assert entry.legs[1].duration_min <= 25
 
 
 async def test_impossible_budget_fails_with_actionable_advice(fake_maps):

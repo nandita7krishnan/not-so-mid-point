@@ -1,15 +1,16 @@
 """The agent graph.
 
     Node 0 (search area)
-        |-> Node A (person 1 reachability) --|
-        |-> Node B (person 2 reachability) --|-> Node C (shortlist)
-                                                  -> Node D (spot finder)
-                                                  -> Node E (scorer)
-                                                  -> Node F (reviewer) -> END
+        |-> reach_person1 --|
+        |-> ...             |-> Node C (shortlist)
+        |-> reach_person5 --|      -> Node D (spot finder)
+                                   -> Node E (scorer)
+                                   -> Node F (reviewer) -> END
 
-A and B are edges out of the same node into the same fan-in, so LangGraph runs
-them in one superstep. They write to disjoint state keys; the keys that *are*
-written concurrently (`warnings`, `timings`) carry reducers in MeetingState.
+The reachability nodes are edges out of the same node into the same fan-in, so
+LangGraph runs them in one superstep. Slots beyond the party count return
+immediately. Every key written concurrently (`reachability`, `warnings`,
+`timings`) carries a reducer in MeetingState.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ from typing import Any, Optional
 
 from langgraph.graph import END, START, StateGraph
 
-from .nodes.reachability import person1_reachability_node, person2_reachability_node
+from .nodes.reachability import REACHABILITY_NODES
 from .nodes.reviewer import reviewer_node
 from .nodes.scorer import scorer_node
 from .nodes.search_area import search_area_node
@@ -31,18 +32,19 @@ from .state import MeetingState
 def build_graph():
     graph = StateGraph(MeetingState)
     graph.add_node("node0_search_area", search_area_node)
-    graph.add_node("nodeA_person1", person1_reachability_node)
-    graph.add_node("nodeB_person2", person2_reachability_node)
+    for index, node in enumerate(REACHABILITY_NODES):
+        graph.add_node(f"reach_person{index + 1}", node)
     graph.add_node("nodeC_shortlist", shortlist_node)
     graph.add_node("nodeD_spots", spot_finder_node)
     graph.add_node("nodeE_score", scorer_node)
     graph.add_node("nodeF_review", reviewer_node)
 
     graph.add_edge(START, "node0_search_area")
-    graph.add_edge("node0_search_area", "nodeA_person1")
-    graph.add_edge("node0_search_area", "nodeB_person2")
-    graph.add_edge("nodeA_person1", "nodeC_shortlist")
-    graph.add_edge("nodeB_person2", "nodeC_shortlist")
+    # Every reachability node hangs off Node 0 and feeds the same fan-in, so
+    # they all execute in one superstep.
+    for index in range(len(REACHABILITY_NODES)):
+        graph.add_edge("node0_search_area", f"reach_person{index + 1}")
+        graph.add_edge(f"reach_person{index + 1}", "nodeC_shortlist")
     graph.add_edge("nodeC_shortlist", "nodeD_spots")
     graph.add_edge("nodeD_spots", "nodeE_score")
     graph.add_edge("nodeE_score", "nodeF_review")
@@ -61,6 +63,7 @@ async def run_graph(initial: dict[str, Any], deps: RunDeps) -> MeetingState:
         "warnings": [],
         "timings": {},
         "failure": None,
+        "reachability": {},
         "shortlisted_neighbourhoods": [],
         "candidate_venues": [],
         "ranked_venues": [],

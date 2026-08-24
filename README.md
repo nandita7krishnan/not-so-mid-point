@@ -1,12 +1,12 @@
 # Not-So-Mid-Point
 
-**Find a meeting spot that's actually fair to both of you.**
+**Find a meeting spot that's actually fair to everyone.**
 
-Two people, two starting points, and the perennial question of where to meet.
-The usual answer — pick something "in the middle" — quietly favours whoever has
-the better transit connection. Not-So-Mid-Point measures what each journey
-really costs, in travel time and transfers, then finds places that are fair on
-both counts *and* somewhere you both want to be.
+Two to five people, scattered starting points, and the perennial question of
+where to meet. The usual answer — pick something "in the middle" — quietly
+favours whoever has the better transit connection. Not-So-Mid-Point measures
+what each journey really costs, in travel time and transfers, then finds places
+that are fair on those counts *and* somewhere the group actually wants to be.
 
 It does not compute a geographic midpoint. It asks Google what each person's
 trip to each candidate area actually takes, and optimises from there.
@@ -15,21 +15,25 @@ trip to each candidate area actually takes, and optimises from there.
 
 ## What it does
 
-Give it two addresses and what you're both up for. It returns three ranked
-suggestions, each showing both journeys in full:
+Give it everyone's addresses and what the group is up for. It returns three
+ranked suggestions, each showing every journey in full:
 
 ```
-1. Elliott Bay Trail — 4.9★ — Belltown
-   Fremont       16 min   drive · 4.0 km
-   West Seattle  20 min   direct · Bus 50
-   Difference between you: 4 min
+1. Storyville Coffee Pike Place — Belltown
+   Ana    40 min   transit    D Line
+   Ben    19 min   drive      9.6 km
+   Cleo   42 min   walk       2.9 km
+   Dev    36 min   bike       9.5 km
+   Spread across you: 22 min · combined 137 min
 ```
 
+- **Two to five people.** Add and remove participants freely; the fairness maths
+  generalises rather than special-casing pairs.
 - **Per-person travel modes** — bus/train, drive, bike, or walk, chosen
   independently. A driver and a rider meeting in the middle land somewhere quite
   different from two riders.
-- **Two definitions of fair**, as an explicit toggle: minimise the *gap* between
-  your journeys, or minimise the *total*. They give genuinely different answers,
+- **Two definitions of fair**, as an explicit toggle: minimise the *spread*
+  between the best- and worst-off person, or minimise the *total*. They give genuinely different answers,
   and the choice is yours rather than buried in a scoring function.
 - **Adjustable priorities** — fairness, preference match, and transfer count, as
   sliders that always total 100%.
@@ -53,12 +57,16 @@ concurrently — that parallelism is why this is a graph and not a loop.
 
 ```
 Node 0  transit-aware search area
-   ├─ Node A  person 1 reachability ─┐
-   └─ Node B  person 2 reachability ─┴─ Node C  shortlist + fairness
-                                        → Node D  venue discovery
-                                        → Node E  scoring
-                                        → Node F  validation → top 3
+   ├─ reach_person1 ─┐
+   ├─ …              ├─ Node C  shortlist + fairness
+   └─ reach_person5 ─┘     → Node D  venue discovery
+                           → Node E  scoring
+                           → Node F  validation → top 3
 ```
+
+There is a static reachability node per party slot, so all of them run in a
+single superstep however many people are involved; unused slots return
+immediately.
 
 **[METHODOLOGY.md](METHODOLOGY.md) documents the algorithm in full** — the
 corridor geometry, both fairness functions and why the ceiling constant is 0.4,
@@ -103,18 +111,19 @@ expands your description into search types and re-ranks results by fit.
 
 ## Costs
 
-≈ **$0.41 per cold search**, and **$0 for a repeat** — responses cache for 24
-hours, so adjusting sliders on the same pair is free.
+**$0 for a repeat** — responses cache for 24 hours, so adjusting sliders on the
+same group is free. A cold search costs, by party count:
 
-| SKU | Calls | Cost | Free/month | Free searches |
-|---|---:|---:|---:|---:|
-| Distance Matrix | 32 | $0.160 | 10,000 | **312** |
-| Directions | 16 | $0.080 | 10,000 | 625 |
-| Places Nearby/Text | 5 | $0.160 | 5,000 | 1,000 |
-| Place Details / Geocoding | 2 | $0.010 | 10,000 | 5,000 |
+| Parties | Cost/search | Free searches/month |
+|---:|---:|---:|
+| 2 | $0.41 | 312 |
+| 3 | $0.54 | 208 |
+| 5 | $0.79 | 125 |
 
-Distance Matrix bills **per element** (origins × destinations), which makes it
-the binding constraint despite being only two requests. `SWEEP_LIMIT` (16) and
+Routing scales linearly with the group (N × 16 Distance Matrix elements, N × 8
+Directions calls); only the venue search is fixed at 5 calls. Distance Matrix
+bills **per element** (origins × destinations), which makes it the binding
+constraint despite being one request per person. `SWEEP_LIMIT` (16) and
 `MAX_CANDIDATE_NEIGHBOURHOODS` (8) are the dials — see
 [METHODOLOGY.md §9](METHODOLOGY.md#9-cost-model).
 
@@ -129,7 +138,7 @@ August 2026 — verify against Console → Billing → Reports.
 cd backend && ../.venv/bin/python -m pytest -q
 ```
 
-48 tests run against a fake Maps client, so the whole graph — including the
+65 tests run against a fake Maps client, so the whole graph — including the
 parallel fan-out, every failure mode, and each scoring rule — is exercised
 without spending an API call. Most were written as regressions against specific
 bugs found in live output; those cases are documented in the methodology.
@@ -157,5 +166,5 @@ frontend/             form, results, Leaflet map
 
 ## Not in v1
 
-No accounts or saved history. Two people only. Scheduled transit data rather
-than live disruptions. Web only.
+No accounts or saved history. Five participants maximum. Scheduled transit data
+rather than live disruptions. Web only.
