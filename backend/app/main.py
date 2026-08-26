@@ -111,7 +111,7 @@ class AutocompleteRequest(BaseModel):
 
 class PartyRequest(BaseModel):
     address: str = Field(..., min_length=2)
-    mode: TravelMode = "transit"
+    mode: TravelMode = "driving"
     # Set when the address came from the autocomplete dropdown. Resolving a
     # place_id is unambiguous and closes the billing session opened by typing,
     # so it replaces the Geocoding call entirely.

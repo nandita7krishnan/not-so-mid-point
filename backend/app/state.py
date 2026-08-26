@@ -53,7 +53,9 @@ class Person(BaseModel):
 
     label: str
     location: Location
-    mode: TravelMode = "transit"
+    # Matches the form's default, so a request that omits the mode is scored the
+    # same way the UI would have sent it.
+    mode: TravelMode = "driving"
 
     @property
     def short_label(self) -> str:
