@@ -10,9 +10,11 @@ const CATEGORIES = [
 const DEFAULT_SELECTED = new Set(["coffee"]);
 
 const MODES = [
-  ["transit", "🚌 Bus/train"], ["driving", "🚗 Drive"],
+  ["driving", "🚗 Drive"], ["transit", "🚌 Bus/train"],
   ["bicycling", "🚲 Bike"], ["walking", "🚶 Walk"],
 ];
+// First in MODES is also what a new person starts on.
+const DEFAULT_MODE = MODES[0][0];
 const MODE_SHORT = { transit: "transit", driving: "drive", bicycling: "bike", walking: "walk" };
 const MIN_PARTIES = 2;
 const MAX_PARTIES = 5;
@@ -188,7 +190,7 @@ function buildChips() {
 function addParty(defaults = {}) {
   if (parties.length >= MAX_PARTIES) return;
   const index = parties.length;
-  const party = { mode: defaults.mode || "transit", field: null, nameInput: null, renamed: false };
+  const party = { mode: defaults.mode || DEFAULT_MODE, field: null, nameInput: null, renamed: false };
   parties.push(party);
 
   const row = document.createElement("div");
@@ -298,10 +300,15 @@ function syncTransferControls() {
   weight.classList.toggle("inapplicable", !applies);
   form.max_transfers.disabled = !applies;
   form.w_transfers.disabled = !applies;
-  const modeList = [...new Set(parties.map((p) => MODE_SHORT[p.mode] || p.mode))].join(" / ");
-  $("#transferNote").textContent = applies
-    ? ""
-    : `Not applicable: ${modeList} have no transfers.`;
+  // Drive is the default, so this note now greets everyone on first load rather
+  // than only appearing once someone switched transit off -- it has to read as
+  // a sentence for one mode as well as for several.
+  const modes = [...new Set(parties.map((p) => MODE_SHORT[p.mode] || p.mode))];
+  const subject =
+    modes.length === 1
+      ? `a ${modes[0]} has`
+      : `${modes.slice(0, -1).join(", ")} and ${modes[modes.length - 1]} have`;
+  $("#transferNote").textContent = applies ? "" : `Not applicable: ${subject} no transfers.`;
   resplitForModeChange();
   syncOutputs();
 }
@@ -434,6 +441,17 @@ function shortName(label) {
   return label.split(",")[0];
 }
 
+/* Map pins for people carry their initials, not a number: the venue pins are
+   already numbered by rank, and two numbered scales on one map read as one.
+   The default "Person A" contributes only its letter -- "PA" would be noise. */
+function personInitials(label) {
+  const words = (label || "").trim().replace(/^person\s+/i, "").split(/\s+/).filter(Boolean);
+  if (!words.length) return "?";
+  // Spread rather than [0], so a name starting with an emoji or an astral
+  // character yields that character instead of half a surrogate pair.
+  return words.slice(0, 2).map((word) => [...word][0].toUpperCase()).join("");
+}
+
 function renderDetail(data) {
   const rows = data.shortlist
     .map(
@@ -486,19 +504,26 @@ function drawMap(data) {
   if (layer) layer.remove();
   layer = L.layerGroup().addTo(map);
 
-  const pin = (color, text) =>
-    L.divIcon({
+  // Two initials need a little more room inside the same circle than one
+  // character does, so the type shrinks rather than the pin growing.
+  const pin = (color, text) => {
+    // Count code points, not UTF-16 units: an emoji initial is one glyph wide
+    // however many units it takes to store.
+    const wide = [...text].length > 1;
+    return L.divIcon({
       className: "",
       html: `<div style="background:${color};color:#fff;width:26px;height:26px;border-radius:50%;
-        display:grid;place-items:center;font:700 12px sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.4)">${text}</div>`,
+        display:grid;place-items:center;font:700 ${wide ? 10 : 12}px sans-serif;
+        letter-spacing:${wide ? "-.02em" : "0"};box-shadow:0 1px 4px rgba(0,0,0,.4)">${escapeHtml(text)}</div>`,
       iconSize: [26, 26],
       iconAnchor: [13, 13],
     });
+  };
 
   const points = [];
   data.people.forEach((person, i) => {
     const { lat, lng } = person.location.coords;
-    L.marker([lat, lng], { icon: pin(LEG_COLORS[i], String(i + 1)) })
+    L.marker([lat, lng], { icon: pin(LEG_COLORS[i], personInitials(person.label)) })
       .bindPopup(`<strong>${escapeHtml(person.label)}</strong><br>${escapeHtml(person.location.label)}`)
       .addTo(layer);
     points.push([lat, lng]);
