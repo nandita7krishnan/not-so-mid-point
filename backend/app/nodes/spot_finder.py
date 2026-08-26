@@ -17,6 +17,7 @@ from typing import Any, Optional
 from ..config import (
     LLM_RERANK_LIMIT,
     NEIGHBOURHOODS_SEARCHED,
+    NEIGHBOURHOODS_SEARCHED_MAX,
     NEIGHBOURHOOD_RADIUS_M,
     get_settings,
 )
@@ -24,7 +25,7 @@ from ..geo import haversine_m
 from ..providers.llm import ALLOWED_PLACE_TYPES
 from ..providers.maps import MapsError
 from ..runtime import deps_from_config
-from ..state import GraphFailure, LatLng, MeetingState, PreferenceSpec, Venue
+from ..state import GraphFailure, LatLng, MeetingState, PreferenceSpec, Venue, Weights
 
 # The fixed multi-select categories in the form, mapped to Places API types.
 CATEGORY_TYPES: dict[str, list[str]] = {
@@ -44,6 +45,20 @@ CATEGORY_TYPES: dict[str, list[str]] = {
 }
 
 DEFAULT_TYPES = ["cafe", "restaurant", "park"]
+
+
+def _neighbourhoods_to_search(weights: Weights) -> int:
+    """How far down the fairness-ordered shortlist to look for venues.
+
+    Someone who has pushed the slider to "preference match" is saying the venue
+    matters more than the minutes, so cutting the search off at the five fairest
+    neighbourhoods contradicts them before the scorer gets a vote. Each extra
+    neighbourhood costs Places requests, so the widening is bounded and
+    proportional rather than unconditional.
+    """
+    share = weights.normalized().preference
+    extra = NEIGHBOURHOODS_SEARCHED_MAX - NEIGHBOURHOODS_SEARCHED
+    return NEIGHBOURHOODS_SEARCHED + round(share * extra)
 
 
 def _types_for_categories(categories: list[str]) -> list[str]:
@@ -212,7 +227,8 @@ async def spot_finder_node(state: MeetingState, config: dict) -> dict:
 
     deps = deps_from_config(config)
     settings = get_settings()
-    shortlist = state.get("shortlisted_neighbourhoods", [])[:NEIGHBOURHOODS_SEARCHED]
+    searched = _neighbourhoods_to_search(state.get("weights") or Weights())
+    shortlist = state.get("shortlisted_neighbourhoods", [])[:searched]
     spec = await _build_spec(state, deps)
 
     async def for_neighbourhood(entry) -> list[Venue]:

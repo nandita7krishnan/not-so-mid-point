@@ -14,6 +14,16 @@ six near-identical parks.
 With absolute scales a weight of 0.4 means the same thing regardless of how
 tightly the candidates happen to be clustered, and a component that doesn't vary
 simply adds a constant to every venue instead of distorting the ranking.
+
+Absolute does not mean raw, though. Each component is anchored to the best
+available candidate and decays over a tolerance chosen in that component's own
+units, so the three arrive at comparable *sensitivity*. Preference was the
+exception until it wasn't: it was passed through as-is, and because every venue
+the Places search returns is already of the type asked for, raw preference
+scores cluster inside a few hundredths of each other while fairness spreads over
+the whole range. The weights were being applied correctly and were still
+meaningless -- a 0.01 preference edge could not outvote a 0.39 fairness gap at
+any slider position short of 0% fairness.
 """
 from __future__ import annotations
 
@@ -34,6 +44,22 @@ def fairness_score(fairness_raw: float, best_raw: float, tolerance_min: float) -
     if tolerance_min <= 0:
         return 1.0 if deficit <= 0 else 0.0
     return max(0.0, min(1.0, 1.0 - deficit / tolerance_min))
+
+
+def preference_score(preference_raw: float, best_raw: float, tolerance: float) -> float:
+    """How much worse the match is than the best-matching candidate, in 0-1
+    preference points.
+
+    Same shape as `fairness_score`, and for the same reason: what matters to a
+    ranking is how a candidate compares to the best one available, graded
+    against a fixed idea of how large a difference is worth caring about.
+    `tolerance` is deliberately small, because the raw scores are compressed
+    into the top of the range by the type filter that produced them.
+    """
+    deficit = best_raw - preference_raw
+    if tolerance <= 0:
+        return 1.0 if deficit <= 0 else 0.0
+    return max(0.0, min(1.0, 1.0 - deficit / tolerance))
 
 
 def transfer_score(total_transfers: int, reference: int) -> float:
@@ -58,6 +84,9 @@ async def scorer_node(state: MeetingState, config: dict) -> dict:
         return {"ranked_venues": [], "timings": {"scorer": time.perf_counter() - started}}
 
     best_raw = max(entry.fairness_raw for _, entry in pairs)
+    best_preference = max(
+        max(0.0, min(1.0, venue.preference_score)) for venue, _ in pairs
+    )
 
     # The transfer component is the one genuine exclusion: with nobody on
     # transit there are no transfers to weigh, whatever the slider says, so its
@@ -80,9 +109,11 @@ async def scorer_node(state: MeetingState, config: dict) -> dict:
             "fairness": fairness_score(
                 entry.fairness_raw, best_raw, settings.fairness_tolerance_min
             ),
-            # Already an absolute 0-1 fit score -- stretching it would destroy
-            # the very meaning the LLM/heuristic assigned it.
-            "preference": max(0.0, min(1.0, venue.preference_score)),
+            "preference": preference_score(
+                max(0.0, min(1.0, venue.preference_score)),
+                best_preference,
+                settings.preference_tolerance,
+            ),
             "transfers": transfer_score(entry.total_transfers, settings.transfer_reference),
         }
         final = sum(weight * parts[name] for name, weight in effective.items())

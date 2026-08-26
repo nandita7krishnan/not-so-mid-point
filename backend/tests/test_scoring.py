@@ -151,3 +151,49 @@ def test_text_only_name_match_cannot_beat_a_far_better_venue():
     named_but_bad = _venue(name="SODO Trail", types=["park"], rating=2.3, rating_count=4)
     unnamed_but_good = _venue(name="Lake Union Park", types=["park"], rating=4.6, rating_count=4892)
     assert heuristic_preference(unnamed_but_good, spec) > heuristic_preference(named_but_bad, spec)
+
+
+def test_preference_score_is_sensitive_to_a_compressed_spread():
+    """Regression: raw preference scores were used as-is. Every venue the Places
+    search returns is already of the type asked for, so they clustered inside
+    ~0.03 of each other while fairness spanned the full range -- the sliders
+    were applied faithfully and still could not change the ranking."""
+    from app.nodes.scorer import preference_score
+
+    best = 0.90
+    assert preference_score(best, best, 0.15) == 1.0
+    # The 0.01 gap that used to be invisible now costs a visible amount.
+    assert preference_score(0.89, best, 0.15) < 0.95
+    # A genuinely poor match still bottoms out.
+    assert preference_score(0.60, best, 0.15) == 0.0
+
+
+def test_preference_can_outvote_fairness_when_weighted_to():
+    """The reported bug, in numbers: a 4.8-star park scoring 0.90 on preference
+    but 0.56 on fairness lost to a 0.89/0.95 venue at *every* slider position
+    except exactly 0% fairness."""
+    from app.nodes.scorer import preference_score
+
+    tolerance = 0.15
+    best_pref = 0.90
+    close = preference_score(0.89, best_pref, tolerance)
+    top = preference_score(best_pref, best_pref, tolerance)
+
+    def final(fairness: float, preference: float, w_fair: float) -> float:
+        return w_fair * fairness + (1 - w_fair) * preference
+
+    # 90% preference: the better match wins despite the worse trip.
+    assert final(0.56, top, 0.1) > final(0.95, close, 0.1)
+    # Even weighting: fairness still carries it, as it should.
+    assert final(0.56, top, 0.5) < final(0.95, close, 0.5)
+
+
+def test_search_window_widens_with_the_preference_weight():
+    """The shortlist is fairness-ordered, so capping the venue search at its top
+    five was a fairness filter applied before the weights were consulted."""
+    from app.nodes.spot_finder import _neighbourhoods_to_search
+    from app.state import Weights
+
+    fair_first = _neighbourhoods_to_search(Weights(fairness=90, preference=10, transfers=0))
+    pref_first = _neighbourhoods_to_search(Weights(fairness=0, preference=100, transfers=0))
+    assert pref_first > fair_first

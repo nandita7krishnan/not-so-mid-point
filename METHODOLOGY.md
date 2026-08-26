@@ -213,7 +213,17 @@ language directly, so "running trail" returns Elliott Bay Trail with no model
 involved. The LLM is strictly an upgrade, never a dependency; every path
 degrades to a working search.
 
-### 6.2 Keeping venues inside their neighbourhood
+### 6.2 How far down the shortlist to search
+
+The shortlist arrives ordered by fairness, and only its top entries get a Places
+query — each one costs requests, so the window has to end somewhere. But cutting
+it at a fixed five made that a *fairness filter applied before the weights are
+consulted*: a perfect match in the sixth-fairest neighbourhood was never
+searched, so no slider position could surface it. The window now widens with the
+preference weight, from 5 at 0% to 8 at 100%, bounded by the number of
+neighbourhoods that exist.
+
+### 6.3 Keeping venues inside their neighbourhood
 
 Travel times are measured to a **centroid**, so a venue must genuinely be near
 that centroid or the time displayed beside it is not its own.
@@ -228,7 +238,7 @@ drive time when the true drive was 26. Two defences now apply:
 2. A client-side radius re-check, because a rectangle's corners overshoot the
    inscribed circle by √2.
 
-### 6.3 Preference scoring
+### 6.4 Preference scoring
 
 **Rating quality** uses Bayesian shrinkage. A raw average lets a 5.0 from 30
 reviews beat a 4.5 from 887, so each venue is treated as already carrying
@@ -297,15 +307,28 @@ reviews, all to save four minutes.
 
 ```
 fairness    = clamp(1 − (best_raw − fairness_raw) / T, 0, 1)     T = 15 min
-preference  = venue.preference_score                              (already 0–1)
+preference  = clamp(1 − (best_pref − preference_score) / P, 0, 1) P = 0.15
 transfers   = clamp(1 − total_transfers / R, 0, 1)                R = 4
 ```
 
-Fairness is anchored at the best available option and decays linearly, reaching
-zero once a candidate is 15 minutes-equivalent worse. Preference is used as-is, because
-stretching it would destroy the meaning the LLM or heuristic assigned. Transfers
-is graded against a fixed reference, so a door-to-door trip scores 1.0 regardless
-of how good or bad the alternatives happen to be.
+Fairness and preference are both anchored at the best available option and decay
+linearly, each over a tolerance expressed in its own units: 15 minutes-equivalent
+for fairness, 0.15 preference points for the match. Transfers is graded against a
+fixed reference, so a door-to-door trip scores 1.0 regardless of how good or bad
+the alternatives happen to be.
+
+Absolute is not the same as raw. Preference *was* passed through untouched, on
+the reasoning that stretching it would destroy the meaning the LLM or heuristic
+assigned — but the raw scores are compressed into the top of the range by the
+filter that produced them. Everything Places returns is already of the type
+asked for, so `type_match` is a constant 1.0 and only the shrunk rating varies:
+across a real result set the spread was **0.03**, against 0.39 for fairness. The
+weights were applied faithfully and were still inert. A 0.01 preference edge
+cannot outvote a 0.39 fairness gap at any slider position short of 0% fairness,
+which is exactly what the UI showed — the ranking changed only at the extreme.
+A tolerance chosen in preference units, rather than none at all, puts the three
+components on comparable *sensitivity* without reintroducing min–max's
+dependence on whatever spread happens to exist.
 
 The effect on the case above:
 
