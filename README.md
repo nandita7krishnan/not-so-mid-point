@@ -13,6 +13,22 @@ trip to each candidate area actually takes, and optimises from there.
 
 ---
 
+## What it looks like
+
+Three people meeting for coffee or a park: Ana driving from Ballard, Ben on the
+bus from Columbia City, Cass driving from the U District.
+
+![The form, with a card per person: their name, starting address, and travel mode chosen independently](docs/screenshot-inputs.jpg)
+
+Every answer shows its work. The map marks where each person starts, by their
+initials in their own colour, alongside the three ranked spots. Each suggestion
+then breaks down what the trip actually costs every person, and how the spot
+scored on each component.
+
+![Results: a map of the three starting points and three ranked spots, above the top result showing each person's travel time and the fairness, preference, transfer and final score bars](docs/screenshot-results.jpg)
+
+---
+
 ## What it does
 
 Give it everyone's addresses and what the group is up for. It returns three
@@ -30,12 +46,14 @@ ranked suggestions, each showing every journey in full:
 - **Two to five people.** Add and remove participants freely; the fairness maths
   generalises rather than special-casing pairs. Everyone starts as Person A, B,
   C… and can be renamed. The names carry through to the results and the map.
-- **Per-person travel modes**: bus/train, drive, bike, or walk, chosen
+- **Per-person travel modes**: drive, bus/train, bike, or walk, chosen
   independently. A driver and a rider meeting in the middle land somewhere quite
   different from two riders.
 - **Two definitions of fair**, as an explicit toggle: minimise the *spread*
   between the best- and worst-off person, or minimise the *total*. They give genuinely different answers,
-  and the choice is yours rather than buried in a scoring function.
+  and the choice is yours rather than buried in a scoring function. It starts on
+  spread for two people and on total for three or more, where holding the spread
+  even tends to drag everyone toward a middle nobody chose.
 - **Adjustable priorities**: fairness, preference match, and transfer count, as
   sliders that always total 100%.
 - **Interest matching**: pick categories, or just describe what you want

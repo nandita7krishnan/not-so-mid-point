@@ -280,6 +280,20 @@ function renumberParties() {
     parties.length >= MAX_PARTIES
       ? `${MAX_PARTIES} is the maximum`
       : `${parties.length} of ${MAX_PARTIES}`;
+  syncFairnessMode();
+}
+
+/* With two people, "fair" naturally means the gap between them. With three or
+   more, holding the spread even tends to drag everyone toward a mediocre middle
+   nobody chose, so least combined time is the better starting point. This only
+   ever moves an untouched control: once someone picks a mode themselves, the
+   party count stops overriding them. */
+let fairnessModeChosen = false;
+
+function syncFairnessMode() {
+  if (fairnessModeChosen) return;
+  const wanted = parties.length > 2 ? "absolute" : "gap";
+  for (const radio of form.fairness_mode) radio.checked = radio.value === wanted;
 }
 
 function partyName(party, index) {
@@ -665,6 +679,9 @@ for (const name of WEIGHT_NAMES) {
 // The weight sliders manage themselves; everything else just refreshes labels.
 form.addEventListener("input", (event) => {
   if (!String(event.target.name || "").startsWith("w_")) syncOutputs();
+});
+$("#fairnessMode").addEventListener("change", () => {
+  fairnessModeChosen = true;
 });
 form.addEventListener("submit", submit);
 
