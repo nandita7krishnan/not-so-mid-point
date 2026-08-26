@@ -1,0 +1,44 @@
+# Render blueprint. In the Render dashboard: New > Blueprint, point it at this
+# repo, then paste GOOGLE_MAPS_API_KEY into the prompt it shows.
+#
+# The two API keys are marked `sync: false`, which means Render asks for them
+# rather than reading them from this file. Never commit a key here.
+services:
+  - type: web
+    name: not-so-mid-point
+    runtime: python
+    plan: free
+    region: oregon
+    healthCheckPath: /api/health
+    buildCommand: pip install -r backend/requirements.txt
+    # One worker on purpose: the rate limiter keeps its counters in process
+    # memory, so a second worker would silently double every limit.
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.13"
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # Public deployment: limits on, and the client IP arrives via Render's proxy.
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: TRUST_PROXY
+        value: "true"
+      # Per visitor.
+      - key: RECOMMEND_PER_HOUR
+        value: "12"
+      - key: RECOMMEND_PER_DAY
+        value: "40"
+      - key: AUTOCOMPLETE_PER_MINUTE
+        value: "60"
+      # Instance-wide ceiling. This is the one that bounds the bill: per-visitor
+      # limits do nothing against many visitors. 150 cold searches is roughly
+      # half the free monthly allowance for a two-person search, per day.
+      - key: GLOBAL_RECOMMEND_PER_DAY
+        value: "150"
+      # Render's filesystem is ephemeral, so the cache is a warm-start bonus
+      # rather than something to rely on.
+      - key: CACHE_DIR
+        value: "/tmp/nsmp-cache"

@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -19,6 +19,13 @@ from .config import get_settings  # noqa: E402  (must follow load_dotenv)
 from .graph import run_graph  # noqa: E402
 from .providers.llm import LLMClient  # noqa: E402
 from .providers.maps import MapsClient, MapsError  # noqa: E402
+from .ratelimit import (  # noqa: E402
+    GLOBAL_KEY,
+    RateLimitError,
+    Rule,
+    SlidingWindowLimiter,
+    client_key,
+)
 from .runtime import RunDeps  # noqa: E402
 from .state import (  # noqa: E402
     MAX_PARTIES,
@@ -38,6 +45,63 @@ log = logging.getLogger("not-so-mid-point")
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 
 app = FastAPI(title="Not-So-Mid-Point", version="1.0")
+
+_limiter = SlidingWindowLimiter()
+_SWEEP_EVERY = 500
+_requests_seen = 0
+
+
+def _rules() -> dict[str, Rule]:
+    settings = get_settings()
+    return {
+        "recommend_hour": Rule(settings.recommend_per_hour, 3600),
+        "recommend_day": Rule(settings.recommend_per_day, 86_400),
+        "autocomplete": Rule(settings.autocomplete_per_minute, 60),
+        "global_day": Rule(settings.global_recommend_per_day, 86_400),
+    }
+
+
+def _enforce(request: Request, scope: str, rules: list[tuple[str, Rule]]) -> None:
+    """Apply each rule in turn, cheapest window first."""
+    global _requests_seen
+    settings = get_settings()
+    if not settings.rate_limit_enabled:
+        return
+
+    _requests_seen += 1
+    if _requests_seen % _SWEEP_EVERY == 0:
+        _limiter.sweep(86_400)
+
+    who = client_key(
+        request.headers.get("x-forwarded-for"),
+        request.client.host if request.client else None,
+        settings.trust_proxy,
+    )
+    for name, rule in rules:
+        key = GLOBAL_KEY if name.startswith("global") else f"{scope}:{name}:{who}"
+        retry_after = _limiter.check(key, rule)
+        if retry_after is None:
+            continue
+        if name.startswith("global"):
+            message = (
+                "This instance has hit its daily search limit, which exists to cap "
+                "Google Maps costs. Try again tomorrow, or run your own copy."
+            )
+        else:
+            message = (
+                f"Too many searches from your connection ({rule.describe()}). "
+                "Try again shortly."
+            )
+        raise RateLimitError(retry_after, message)
+
+
+@app.exception_handler(RateLimitError)
+async def _rate_limited(request: Request, exc: RateLimitError) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={"detail": exc.message},
+        headers={"Retry-After": str(exc.retry_after)},
+    )
 
 
 class AutocompleteRequest(BaseModel):
@@ -79,13 +143,16 @@ async def health() -> dict[str, Any]:
         "ok": settings.maps_enabled,
         "max_parties": MAX_PARTIES,
         "maps_configured": settings.maps_enabled,
+        "rate_limited": settings.rate_limit_enabled,
         "llm_configured": settings.llm_enabled,
         "llm_model": settings.llm_model if settings.llm_enabled else None,
     }
 
 
 @app.post("/api/places/autocomplete")
-async def autocomplete(request: AutocompleteRequest) -> dict[str, Any]:
+async def autocomplete(request: AutocompleteRequest, http_request: Request) -> dict[str, Any]:
+    rules = _rules()
+    _enforce(http_request, "autocomplete", [("autocomplete", rules["autocomplete"])])
     settings = get_settings()
     if not settings.maps_enabled:
         return {"suggestions": []}
@@ -107,7 +174,19 @@ async def autocomplete(request: AutocompleteRequest) -> dict[str, Any]:
 
 
 @app.post("/api/recommend")
-async def recommend(request: RecommendRequest) -> dict[str, Any]:
+async def recommend(request: RecommendRequest, http_request: Request) -> dict[str, Any]:
+    rules = _rules()
+    # Cheapest window first, and the global cap last so an individual's limit is
+    # reported before the instance-wide one.
+    _enforce(
+        http_request,
+        "recommend",
+        [
+            ("recommend_hour", rules["recommend_hour"]),
+            ("recommend_day", rules["recommend_day"]),
+            ("global_day", rules["global_day"]),
+        ],
+    )
     settings = get_settings()
     if not settings.maps_enabled:
         raise HTTPException(

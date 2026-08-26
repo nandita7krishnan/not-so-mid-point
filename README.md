@@ -135,13 +135,53 @@ August 2026. Verify against Console → Billing → Reports.
 
 ---
 
+## Deploying
+
+GitHub Pages will not work: it serves static files only, and this needs a Python
+process. It would also force the Maps key into client-side JavaScript, which is
+exactly what the autocomplete proxy exists to avoid.
+
+[`render.yaml`](render.yaml) is a ready blueprint. In Render: **New > Blueprint**,
+point it at this repo, and paste `GOOGLE_MAPS_API_KEY` when prompted. Both keys
+are marked `sync: false`, so they are entered in Render rather than committed.
+
+Two deployment details worth knowing:
+
+- **One worker, deliberately.** The rate limiter keeps counters in process
+  memory, so a second worker would silently double every limit.
+- **The free plan sleeps.** After inactivity the first request takes ~50s to
+  wake the instance. Subsequent searches are normal speed.
+
+### Before making it public
+
+A public URL puts every search on your card. At roughly $0.41 a cold search
+against ~312 free per month, an idle loop drains the free tier in minutes.
+
+The blueprint enables rate limiting by default:
+
+| Limit | Default | Purpose |
+|---|---|---|
+| `RECOMMEND_PER_HOUR` | 12 | one visitor hammering the expensive path |
+| `RECOMMEND_PER_DAY` | 40 | slower-burn abuse from one visitor |
+| `AUTOCOMPLETE_PER_MINUTE` | 60 | typing is cheap, so this is loose |
+| `GLOBAL_RECOMMEND_PER_DAY` | 150 | **the ceiling that actually bounds the bill** |
+
+The global cap is the important one. Per-visitor limits do nothing against many
+visitors, so it is what bounds the worst case. Rejected requests return `429`
+with a `Retry-After` header.
+
+**None of this is the real backstop.** The limiter is per-process and resets on
+restart. Set a hard daily quota cap on each API in the Google Cloud console
+(**APIs & Services > each API > Quotas**) plus a budget alert. That is enforced
+by Google, bills nothing when exceeded, and cannot be restarted away.
+
 ## Tests
 
 ```bash
 cd backend && ../.venv/bin/python -m pytest -q
 ```
 
-65 tests run against a fake Maps client, so the whole graph, including the
+87 tests run against a fake Maps client, so the whole graph, including the
 parallel fan-out, every failure mode, and each scoring rule, is exercised
 without spending an API call. Most were written as regressions against specific
 bugs found in live output; those cases are documented in the methodology.

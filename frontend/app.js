@@ -592,6 +592,14 @@ async function submit(event) {
     });
     const data = await response.json();
 
+    if (response.status === 429) {
+      // The limiter is protecting the Maps bill, not rejecting the input, so
+      // say so plainly rather than implying the search was malformed.
+      const wait = Number(response.headers.get("Retry-After") || 0);
+      const when = wait > 90 ? ` Try again in about ${Math.ceil(wait / 60)} minutes.` : "";
+      showNotice("Hold on a moment", (data.detail || "Too many searches.") + when);
+      return;
+    }
     if (!response.ok) {
       showNotice("That didn't work", data.detail || `Request failed (${response.status}).`);
       return;
