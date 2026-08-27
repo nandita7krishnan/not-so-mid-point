@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     recommend_per_hour: int = 12
     recommend_per_day: int = 40
     autocomplete_per_minute: int = 60
-    global_recommend_per_day: int = 150
+    global_recommend_per_day: int = 8
     # Only honour X-Forwarded-For when actually behind a proxy; the header is
     # trivially spoofed when the app is exposed directly.
     trust_proxy: bool = False
@@ -87,7 +87,7 @@ NEIGHBOURHOOD_RADIUS_M = 1200
 # sixth-fairest neighbourhood never gets searched, whatever the sliders say.
 # The window therefore widens with the preference weight, up to the number of
 # neighbourhoods that exist.
-NEIGHBOURHOODS_SEARCHED = 5
-NEIGHBOURHOODS_SEARCHED_MAX = 8
+NEIGHBOURHOODS_SEARCHED = 3
+NEIGHBOURHOODS_SEARCHED_MAX = 4
 # Cap on venues sent to the LLM re-ranker in one call.
 LLM_RERANK_LIMIT = 30

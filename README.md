@@ -132,26 +132,29 @@ expands your description into search types and re-ranks results by fit.
 
 ## Costs
 
-**$0 for a repeat**, because responses cache for 24 hours, so adjusting sliders on the
-same group is free. A cold search costs, by party count:
+**$0 for a repeat**, because responses cache for 24 hours, so adjusting sliders on
+the same group is free. A cold search costs about **$0.43** (2 people, categories)
+or **$0.60** with free text.
 
-| Parties | Cost/search | Free searches/month |
-|---:|---:|---:|
-| 2 | $0.41 | 312 |
-| 3 | $0.54 | 208 |
-| 5 | $0.79 | 125 |
+The binding constraint is **Places Nearby/Text Search Enterprise**: requesting
+`rating` and `userRatingCount` puts every venue search in the Enterprise SKU,
+which allows **1,000 calls/month free** rather than Pro's 5,000. Ranking on
+Google ratings is core to the scoring, so this is not avoidable, only tuneable.
 
-Routing scales linearly with the group (N × 16 Distance Matrix elements, N × 8
-Directions calls); only the venue search is fixed at 5 calls. Distance Matrix
-bills **per element** (origins × destinations), which makes it the binding
-constraint despite being one request per person. `SWEEP_LIMIT` (16) and
-`MAX_CANDIDATE_NEIGHBOURHOODS` (8) are the dials. See
-[METHODOLOGY.md §9](METHODOLOGY.md#9-cost-model).
+| SKU | Per search | Free/month |
+|---|---:|---:|
+| Places Nearby/Text **Enterprise** | 3–4 (double with free text) | **1,000** |
+| Distance Matrix (elements) | N × 16 | 10,000 |
+| Directions | N × 8 | 10,000 |
+| Geocoding / Place Details | N | 10,000 |
 
-Set a budget alert before experimenting. Prices from Google's pricing page,
-August 2026. Verify against Console → Billing → Reports.
+`NEIGHBOURHOODS_SEARCHED` (3) is the main dial: it sets the Places calls per
+search, and therefore how many searches fit inside the free tier. At 3 it is
+about 8 searches/day; at 5 it was 6.5, and under 4 with free text.
 
----
+`GLOBAL_RECOMMEND_PER_DAY` (8) is what actually bounds the bill. Google's own
+Places quota cannot be set tight enough, because free autocomplete requests
+share that API's request counter with billable venue searches.
 
 ## Deploying
 
@@ -182,7 +185,20 @@ The blueprint enables rate limiting by default:
 | `RECOMMEND_PER_HOUR` | 12 | one visitor hammering the expensive path |
 | `RECOMMEND_PER_DAY` | 40 | slower-burn abuse from one visitor |
 | `AUTOCOMPLETE_PER_MINUTE` | 60 | typing is cheap, so this is loose |
-| `GLOBAL_RECOMMEND_PER_DAY` | 150 | **the ceiling that actually bounds the bill** |
+| `GLOBAL_RECOMMEND_PER_DAY` | **8** | **the ceiling that actually bounds the bill** |
+
+Set these quotas in the Google console as the hard backstop (free tier ÷ 31):
+
+| API | Day row | Set | Minute row | Set |
+|---|---|---:|---|---:|
+| Directions | Requests per day | 322 | Requests per minute | 60 |
+| Distance Matrix | Elements per day | 322 | Elements per minute | 60 |
+| Places API (New) | Requests per day | 150 | Requests per minute | 60 |
+| Geocoding | **v3** requests per day | 322 | **v3** requests per minute | 60 |
+
+Geocoding lists v3 and v4 rows; this app calls the v3 endpoint
+(`maps/api/geocode/json`), so the v4 GeocodeAddress/Location/Place rows are
+unused and can be left alone or set low.
 
 The global cap is the important one. Per-visitor limits do nothing against many
 visitors, so it is what bounds the worst case. Rejected requests return `429`

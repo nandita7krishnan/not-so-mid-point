@@ -33,11 +33,13 @@ services:
         value: "40"
       - key: AUTOCOMPLETE_PER_MINUTE
         value: "60"
-      # Instance-wide ceiling. This is the one that bounds the bill: per-visitor
-      # limits do nothing against many visitors. 150 cold searches is roughly
-      # half the free monthly allowance for a two-person search, per day.
+      # Instance-wide ceiling, and the only thing that precisely bounds the
+      # bill: Google's own Places quota cannot be set tight enough, because
+      # free autocomplete requests share that API's request counter with
+      # billable venue searches. 8/day keeps Places Enterprise (1,000/month
+      # free) inside its allowance for category searches.
       - key: GLOBAL_RECOMMEND_PER_DAY
-        value: "150"
+        value: "8"
       # Render's filesystem is ephemeral, so the cache is a warm-start bonus
       # rather than something to rely on.
       - key: CACHE_DIR
