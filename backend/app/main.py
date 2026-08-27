@@ -27,6 +27,7 @@ from .ratelimit import (  # noqa: E402
     client_key,
 )
 from .runtime import RunDeps  # noqa: E402
+from .stats import STATS  # noqa: E402
 from .state import (  # noqa: E402
     MAX_PARTIES,
     MIN_PARTIES,
@@ -61,6 +62,15 @@ def _rules() -> dict[str, Rule]:
     }
 
 
+def _who(request: Request) -> str:
+    settings = get_settings()
+    return client_key(
+        request.headers.get("x-forwarded-for"),
+        request.client.host if request.client else None,
+        settings.trust_proxy,
+    )
+
+
 def _enforce(request: Request, scope: str, rules: list[tuple[str, Rule]]) -> None:
     """Apply each rule in turn, cheapest window first."""
     global _requests_seen
@@ -72,16 +82,13 @@ def _enforce(request: Request, scope: str, rules: list[tuple[str, Rule]]) -> Non
     if _requests_seen % _SWEEP_EVERY == 0:
         _limiter.sweep(86_400)
 
-    who = client_key(
-        request.headers.get("x-forwarded-for"),
-        request.client.host if request.client else None,
-        settings.trust_proxy,
-    )
+    who = _who(request)
     for name, rule in rules:
         key = GLOBAL_KEY if name.startswith("global") else f"{scope}:{name}:{who}"
         retry_after = _limiter.check(key, rule)
         if retry_after is None:
             continue
+        STATS.record("blocked_global" if name.startswith("global") else "blocked_personal", who)
         if name.startswith("global"):
             message = (
                 "This instance has hit its daily search limit, which exists to cap "
@@ -149,10 +156,17 @@ async def health() -> dict[str, Any]:
     }
 
 
+@app.get("/api/stats")
+async def stats(days: int = 14) -> dict[str, Any]:
+    """Aggregate usage. No IP addresses, no locations, no per-person history."""
+    return STATS.snapshot(days=max(1, min(days, 14)))
+
+
 @app.post("/api/places/autocomplete")
 async def autocomplete(request: AutocompleteRequest, http_request: Request) -> dict[str, Any]:
     rules = _rules()
     _enforce(http_request, "autocomplete", [("autocomplete", rules["autocomplete"])])
+    STATS.record("autocompletes", _who(http_request))
     settings = get_settings()
     if not settings.maps_enabled:
         return {"suggestions": []}
@@ -240,11 +254,13 @@ async def recommend(request: RecommendRequest, http_request: Request) -> dict[st
                 RunDeps(maps=maps, llm=llm),
             )
         except MapsError as exc:
+            STATS.record("upstream_errors", _who(http_request))
             raise HTTPException(status_code=502, detail=f"Google Maps API error: {exc}") from exc
     finally:
         await maps.aclose()
 
     failure = state.get("failure")
+    STATS.record("searches_no_result" if failure else "searches_ok", _who(http_request))
     return {
         "ok": failure is None,
         "people": [person.model_dump() for person in people],

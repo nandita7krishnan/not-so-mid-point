@@ -227,13 +227,39 @@ restart. Set a hard daily quota cap on each API in the Google Cloud console
 (**APIs & Services > each API > Quotas**) plus a budget alert. That is enforced
 by Google, bills nothing when exceeded, and cannot be restarted away.
 
+## Usage metrics
+
+`GET /api/stats` reports, per day for the last fortnight:
+
+| Field | Meaning |
+|---|---|
+| `visitors` | distinct people that day |
+| `searches_attempted` | every try, including ones that were blocked |
+| `searches_ok` / `searches_no_result` | served, versus "nothing fits your limits" |
+| `blocked_personal` | someone individually going too fast |
+| `blocked_daily_cap` | the instance-wide ceiling, ie. everyone locked out |
+| `blocked_pct` | share of attempts that hit a wall |
+
+The two block reasons are kept apart on purpose. `blocked_personal` is one
+impatient visitor and needs no action; `blocked_daily_cap` climbing means real
+demand is exceeding the free tier, which is the signal for whether paying for
+more quota is worth it.
+
+Visitors are counted by a **salted hash of the IP**, truncated to 12 characters.
+No addresses, locations or per-person history are stored, and a random per-process
+salt means the hashes cannot be correlated with anything else. Set `VISITOR_SALT`
+to keep counts stable across restarts, at the cost of that property.
+
+Counters live in memory and reset on restart. Every event is also logged, and the
+host retains logs, so the log is the durable record.
+
 ## Tests
 
 ```bash
 cd backend && ../.venv/bin/python -m pytest -q
 ```
 
-87 tests run against a fake Maps client, so the whole graph, including the
+97 tests run against a fake Maps client, so the whole graph, including the
 parallel fan-out, every failure mode, and each scoring rule, is exercised
 without spending an API call. Most were written as regressions against specific
 bugs found in live output; those cases are documented in the methodology.
@@ -254,6 +280,7 @@ frontend/             form, results, Leaflet map
 ```
 
 `GET /api/health` reports which keys are configured.
+`GET /api/stats` reports usage and how often people are hit by limits.
 `POST /api/recommend` runs the graph.
 `POST /api/places/autocomplete` backs the address fields.
 
