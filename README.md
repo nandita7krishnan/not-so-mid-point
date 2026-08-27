@@ -193,13 +193,13 @@ Set these quotas in the Google console as the hard backstop (free tier ÷ 31):
 
 | API | Quota row | Per day | Per minute |
 |---|---|---:|---:|
-| Directions | Requests | 322 | 60 |
-| Distance Matrix | Elements | 322 | 60 |
-| Places API (New) | `SearchNearbyRequest` | **32** | 60 |
-| Places API (New) | `SearchTextRequest` | **32** | 60 |
-| Places API (New) | `GetPlaceRequest` | 322 | 60 |
-| Places API (New) | `AutocompletePlacesRequest` | 322 | 60 |
-| Geocoding | **v3** requests | 322 | 60 |
+| Directions | Requests | 322 | 120 |
+| Distance Matrix | Elements | 322 | 240 |
+| Places API (New) | `SearchNearbyRequest` | **32** | 12 |
+| Places API (New) | `SearchTextRequest` | **32** | 12 |
+| Places API (New) | `GetPlaceRequest` | 322 | 30 |
+| Places API (New) | `AutocompletePlacesRequest` | 322 | 120 |
+| Geocoding | **v3** requests | 322 | 30 |
 
 Places API (New) exposes a **separate quota row per operation**, so the two
 Enterprise-billed searches can be capped tightly without throttling the
@@ -210,7 +210,13 @@ Geocoding lists v3 and v4 rows; this app calls the v3 endpoint
 unused and can be left alone or set low.
 
 Per-day caps are free tier ÷ 31, so they hard-stop before you are billed.
-Per-minute values are a burst guard only; the daily caps already bound the month.
+
+Per-minute values must clear **one search's burst**, because the graph fans out
+concurrently and a whole search lands inside a single minute. A five-person
+search fires 40 Directions calls and 80 Distance Matrix elements at once, so a
+per-minute cap below those fails the search outright rather than throttling it.
+Each per-minute value here allows two to three searches and stays below its own
+per-day cap, so the daily limit is the one that binds.
 
 The global cap is the important one. Per-visitor limits do nothing against many
 visitors, so it is what bounds the worst case. Rejected requests return `429`
