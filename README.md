@@ -174,6 +174,12 @@ Two deployment details worth knowing:
   memory, so a second worker would silently double every limit.
 - **The free plan sleeps.** After inactivity the first request takes ~50s to
   wake the instance. Subsequent searches are normal speed.
+- **The free plan's edge drops requests.** Measured at ~7% on Render free:
+  the router answers `404` with `x-render-routing: no-server` and the request
+  never reaches the instance. The app is not restarting when this happens; the
+  in-memory counters at `/api/stats` hold steady through it. The frontend
+  retries these (they cost nothing, having never arrived), but a paid instance
+  is the real fix if it becomes noticeable.
 
 ### Before making it public
 

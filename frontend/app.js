@@ -32,6 +32,28 @@ const weights = { fairness: 40, preference: 40, transfers: 20 };
 let lastTransfersWeight = 20;
 
 const $ = (sel) => document.querySelector(sel);
+
+/* Hosting edges occasionally fail to route a request to the instance, returning
+   a 404 or 5xx that never reached the app at all. Those are safe to retry: no
+   API call was made, no rate-limit budget was spent. A 429 or a real error from
+   our own code is NOT retried, since that response is the answer. */
+const TRANSIENT = new Set([404, 502, 503, 504]);
+
+async function fetchWithRetry(url, options, attempts = 3) {
+  let lastError;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const response = await fetch(url, options);
+      if (!TRANSIENT.has(response.status) || i === attempts - 1) return response;
+    } catch (error) {
+      lastError = error;
+      if (i === attempts - 1) throw error;
+    }
+    // Brief, growing pause: these gaps are short-lived.
+    await new Promise((r) => setTimeout(r, 250 * (i + 1)));
+  }
+  throw lastError || new Error("request failed");
+}
 const form = $("#form");
 const statusBox = $("#status");
 const output = $("#output");
@@ -89,7 +111,7 @@ class AddressField {
   async fetch(query) {
     const ticket = ++this.seq;
     try {
-      const response = await fetch("/api/places/autocomplete", {
+      const response = await fetchWithRetry("/api/places/autocomplete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ q: query, session: this.session }),
@@ -624,7 +646,7 @@ async function submit(event) {
   };
 
   try {
-    const response = await fetch("/api/recommend", {
+    const response = await fetchWithRetry("/api/recommend", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
