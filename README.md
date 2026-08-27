@@ -136,10 +136,13 @@ expands your description into search types and re-ranks results by fit.
 the same group is free. A cold search costs about **$0.43** (2 people, categories)
 or **$0.60** with free text.
 
-The binding constraint is **Places Nearby/Text Search Enterprise**: requesting
-`rating` and `userRatingCount` puts every venue search in the Enterprise SKU,
-which allows **1,000 calls/month free** rather than Pro's 5,000. Ranking on
-Google ratings is core to the scoring, so this is not avoidable, only tuneable.
+The binding constraint is **Places Search Enterprise**: requesting `rating` and
+`userRatingCount` puts every venue search in the Enterprise SKU, which allows
+**1,000 calls/month free** rather than Pro's 5,000. Ranking on Google ratings is
+core to the scoring, so this is not avoidable, only tuneable.
+
+Nearby Search and Text Search are **separate SKUs with separate 1,000/month
+allowances**, so using free text does not halve your capacity.
 
 | SKU | Per search | Free/month |
 |---|---:|---:|
@@ -152,9 +155,8 @@ Google ratings is core to the scoring, so this is not avoidable, only tuneable.
 search, and therefore how many searches fit inside the free tier. At 3 it is
 about 8 searches/day; at 5 it was 6.5, and under 4 with free text.
 
-`GLOBAL_RECOMMEND_PER_DAY` (8) is what actually bounds the bill. Google's own
-Places quota cannot be set tight enough, because free autocomplete requests
-share that API's request counter with billable venue searches.
+`GLOBAL_RECOMMEND_PER_DAY` (8) bounds the bill in the app, and fails cleanly with
+a 429 before spending anything. The console quotas below are the hard backstop.
 
 ## Deploying
 
@@ -189,16 +191,26 @@ The blueprint enables rate limiting by default:
 
 Set these quotas in the Google console as the hard backstop (free tier ÷ 31):
 
-| API | Day row | Set | Minute row | Set |
-|---|---|---:|---|---:|
-| Directions | Requests per day | 322 | Requests per minute | 60 |
-| Distance Matrix | Elements per day | 322 | Elements per minute | 60 |
-| Places API (New) | Requests per day | 150 | Requests per minute | 60 |
-| Geocoding | **v3** requests per day | 322 | **v3** requests per minute | 60 |
+| API | Quota row | Per day | Per minute |
+|---|---|---:|---:|
+| Directions | Requests | 322 | 60 |
+| Distance Matrix | Elements | 322 | 60 |
+| Places API (New) | `SearchNearbyRequest` | **32** | 60 |
+| Places API (New) | `SearchTextRequest` | **32** | 60 |
+| Places API (New) | `GetPlaceRequest` | 322 | 60 |
+| Places API (New) | `AutocompletePlacesRequest` | 322 | 60 |
+| Geocoding | **v3** requests | 322 | 60 |
+
+Places API (New) exposes a **separate quota row per operation**, so the two
+Enterprise-billed searches can be capped tightly without throttling the
+typeahead. 32/day on each keeps both inside their 1,000/month allowances.
 
 Geocoding lists v3 and v4 rows; this app calls the v3 endpoint
 (`maps/api/geocode/json`), so the v4 GeocodeAddress/Location/Place rows are
 unused and can be left alone or set low.
+
+Per-day caps are free tier ÷ 31, so they hard-stop before you are billed.
+Per-minute values are a burst guard only; the daily caps already bound the month.
 
 The global cap is the important one. Per-visitor limits do nothing against many
 visitors, so it is what bounds the worst case. Rejected requests return `429`
