@@ -37,13 +37,33 @@ def _rejection_reason(
     return None
 
 
+# A gap this small is inside the noise of a traffic estimate, so calling it even
+# is true at any journey length.
+EVEN_FLOOR_MIN = 2.0
+# Above the floor, evenness is a ratio rather than a number of minutes: four
+# minutes apart is nothing on a 40 minute trip and a third of a 12 minute one.
+EVEN_SHARE_OF_LONGEST = 0.25
+
+
+def _reads_as_even(gap_min: float, longest_min: float) -> bool:
+    """Whether "an even trip" is a fair description of this spread.
+
+    The threshold used to be a flat 5 minutes, which grading caught: it called
+    a 4 minute gap on a 12 minute journey even, when one person was travelling
+    half again as long as the other.
+    """
+    if gap_min < EVEN_FLOOR_MIN:
+        return True
+    return gap_min < 5 and gap_min <= EVEN_SHARE_OF_LONGEST * longest_min
+
+
 def _template_why(candidate: RankedVenue) -> str:
     entry = candidate.shortlist
     venue = candidate.venue
     everyone = "both of you" if len(entry.legs) == 2 else f"all {len(entry.legs)} of you"
     fairness = (
         f"an even trip for {everyone}"
-        if entry.gap_min < 5
+        if _reads_as_even(entry.gap_min, entry.max_min)
         else f"a {entry.gap_min:.0f} min spread between you"
     )
     if not entry.transfers_meaningful:

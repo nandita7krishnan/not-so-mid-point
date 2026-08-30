@@ -108,3 +108,32 @@ async def test_duplicate_places_are_not_recommended_twice():
     result = await reviewer_node(_state(candidates), CONFIG)
 
     assert [p.venue.name for p in result["final_top_3"]] == ["Same Place", "Other"]
+
+
+# --- "an even trip" has to survive being read next to the numbers ------------
+
+
+def test_a_small_gap_on_a_short_journey_is_not_an_even_trip():
+    """The case grading turned up: 4 minutes apart on a 12 minute journey is
+    one person travelling half again as long as the other."""
+    from app.nodes.reviewer import _reads_as_even
+
+    assert not _reads_as_even(4.0, 12.0)
+
+
+def test_the_same_gap_on_a_long_journey_is():
+    from app.nodes.reviewer import _reads_as_even
+
+    assert _reads_as_even(4.0, 40.0)
+
+
+def test_a_gap_inside_traffic_noise_is_even_at_any_length():
+    from app.nodes.reviewer import _reads_as_even
+
+    assert _reads_as_even(1.5, 6.0)
+
+
+def test_a_wide_gap_is_never_even_however_long_the_trip():
+    from app.nodes.reviewer import _reads_as_even
+
+    assert not _reads_as_even(20.0, 200.0)

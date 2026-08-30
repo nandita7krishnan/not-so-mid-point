@@ -130,15 +130,38 @@ wake from sleep starts with an empty one — so `evals/log/` on the instance is 
 convenience, not storage. Each record is therefore also emitted as a single log
 line prefixed `SEARCHLOG`, and the host's log retention is the durable copy:
 
+That retention window is the only thing keeping records alive, so pull them
+onto a disk that is actually yours:
+
 ```bash
-# Render dashboard > the service > Logs > Download
-python -m evals.from_logs ~/Downloads/render-logs.txt
+export RENDER_API_KEY=rnd_...      # dashboard > Account Settings > API Keys
+export RENDER_SERVICE_ID=srv-...   # in the service's URL
+cd backend
+python -m evals.pull               # the last 24 hours
+python -m evals.pull --since 7d    # or as far back as retention goes
 python -m evals.judge evals/log
 ```
 
-Records are de-duplicated by id, so overlapping downloads can be concatenated
-without care. `SEARCH_LOG_TO_STDOUT=false` turns the log line off if you would
-rather it not be there.
+It costs nothing — Render's API is free to read, and no Google or model call is
+involved. Records are merged into one file per UTC day and de-duplicated by id,
+so overlapping windows are safe and a re-run is a no-op. Anything already on
+disk wins over what is pulled, so a record you have annotated is never
+overwritten. Hourly from cron is more than enough:
+
+```
+0 * * * * cd ~/point-not-so-mid/backend && .venv/bin/python -m evals.pull
+```
+
+If you would rather not hand out an API key, the same records can be recovered
+from a manual download:
+
+```bash
+# Render dashboard > the service > Logs > Download
+python -m evals.from_logs ~/Downloads/render-logs.txt
+```
+
+`SEARCH_LOG_TO_STDOUT=false` turns the log line off if you would rather it not
+be there at all.
 
 ## What a record holds
 
