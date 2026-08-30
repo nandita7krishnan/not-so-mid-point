@@ -125,14 +125,16 @@ That last criterion has already caught something: the templated copy calls a
 trip "an even trip for both of you" whenever the spread is under 5 minutes,
 which reads oddly next to a 4-minute spread on a 12-minute journey.
 
-Grading reads from a search log that is **off by default**, because a start
-address is personal data whether or not a name is attached to it. When it is on,
-records are coarsened on the way in, never on the way out: the typed address is
-dropped, a start becomes the nearest of the ~50 seeded neighbourhoods, coordinates
-round to about 1.1 km, and names become `P1`…`P5`. Naming a start by the nearest
-seeded neighbourhood is what makes this safe by construction rather than by
-careful string handling — the output can only ever be a name that was already in
-the list, whatever Google returned.
+The cases it grades come from two places. Real searches are recorded only if
+the log is switched on, and are coarsened on the way in — the typed address is
+dropped, a start is named by a public transit stop or the neighbourhood it falls
+in, and names become `P1`…`P5`. Synthetic cases are drawn from published transit
+stops instead, which gives exact coordinates without anyone's home in the file,
+and lets a case be replayed against frozen Maps responses when the scoring
+changes.
+
+**[docs/EVALS.md](docs/EVALS.md)** covers both, including the density gate that
+decides when naming a stop is too sharp.
 
 ---
 

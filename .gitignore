@@ -4,5 +4,17 @@ __pycache__/
 .env
 .cache/
 .pytest_cache/
+# Search logs and their grades. Real searches, so they are kept off the repo
+# even though the records are coarsened on the way in.
+backend/evals/log/
+backend/evals/graded/
+backend/evals/synthetic/
+# Frozen Maps responses. Google's terms cap how long most Places content may be
+# cached, so these stay local and disposable -- re-record rather than commit.
+backend/evals/fixtures/
+# Built from a GTFS feed by `python -m evals.fetch_anchors`. Regenerated, not
+# reviewed: a stale stop list is worse than none.
+backend/data/anchors.csv
 .claude-dashboard/
 graph-writeup.html
+.DS_Store

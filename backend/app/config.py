@@ -60,6 +60,33 @@ class Settings(BaseSettings):
     # trivially spoofed when the app is exposed directly.
     trust_proxy: bool = False
 
+    # --- search log ------------------------------------------------------
+    # Records the question and the answer for every search, as eval input.
+    # Off by default: it is the one place the app writes anything derived from
+    # a visitor's starting point, so collecting has to be a deliberate choice.
+    # Records are coarsened before they are written (see searchlog.py).
+    search_log_enabled: bool = False
+    search_log_dir: str = "evals/log"
+    # Decimal places kept on participant coordinates. 2 is ~1.1 km, which is a
+    # neighbourhood rather than an address, and still tells an eval everything
+    # it needs about the shape of the journey.
+    search_log_coord_precision: int = 2
+    # Optional public-anchor file (see anchors.py and evals/fetch_anchors.py).
+    # When present, a start is named by the nearest transit stop instead of the
+    # neighbourhood it falls in, which is sharper and no less public. Absent,
+    # every lookup misses and the neighbourhood snap is what runs.
+    search_log_anchors: str = "data/anchors.csv"
+    # A stop is only used where this many anchors sit within the radius, so a
+    # lone rural stop -- which names a handful of houses -- never becomes a
+    # label. See AnchorSet.nearest.
+    search_log_anchor_radius_m: float = 500.0
+    search_log_anchor_min_neighbours: int = 3
+    # Also emit each record as a log line. On a host with an ephemeral disk --
+    # which is every free tier -- the file is gone at the next restart, so the
+    # host's own log retention is the only thing that makes "always on" mean
+    # anything. See evals/from_logs.py for reading them back.
+    search_log_to_stdout: bool = True
+
     cache_dir: str = ".cache"
     cache_ttl_seconds: int = 86_400  # a day, per the PRD's cost note
     request_timeout_seconds: float = 12.0

@@ -26,6 +26,8 @@ from .ratelimit import (  # noqa: E402
     SlidingWindowLimiter,
     client_key,
 )
+from . import payload as payload_builder  # noqa: E402
+from . import searchlog  # noqa: E402
 from .runtime import RunDeps  # noqa: E402
 from .stats import STATS  # noqa: E402
 from .state import (  # noqa: E402
@@ -37,7 +39,6 @@ from .state import (  # noqa: E402
     Person,
     TravelMode,
     Weights,
-    uses_transit,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -260,26 +261,19 @@ async def recommend(request: RecommendRequest, http_request: Request) -> dict[st
         await maps.aclose()
 
     failure = state.get("failure")
-    STATS.record("searches_no_result" if failure else "searches_ok", _who(http_request))
-    return {
-        "ok": failure is None,
-        "people": [person.model_dump() for person in people],
-        "departure_time": departure,
-        "fairness_mode": request.fairness_mode,
-        "transfers_apply": uses_transit(*(person.mode for person in people)),
-        "weights": request.weights.normalized().model_dump(),
-        "search_area": _dump(state.get("search_area")),
-        "shortlist": [e.model_dump() for e in state.get("shortlisted_neighbourhoods", [])],
-        "preference_spec": _dump(state.get("preference_spec")),
-        "results": [r.model_dump() for r in state.get("final_top_3", [])],
-        "failure": _dump(failure),
-        "warnings": state.get("warnings", []),
-        "timings": {k: round(v, 3) for k, v in state.get("timings", {}).items()},
-    }
-
-
-def _dump(model: Any) -> Optional[dict[str, Any]]:
-    return model.model_dump() if model is not None else None
+    who = _who(http_request)
+    STATS.record("searches_no_result" if failure else "searches_ok", who)
+    payload = payload_builder.build(
+        state=state, people=people, request=request, departure=departure
+    )
+    searchlog.record(
+        people=people,
+        request=request,
+        response=payload,
+        departure=departure,
+        visitor=STATS.visitor_id(who),
+    )
+    return payload
 
 
 if FRONTEND_DIR.is_dir():

@@ -155,3 +155,53 @@ def base_request():
         "departure_time": 1_700_000_000,
         "require_open": False,
     }
+
+
+@pytest.fixture(autouse=True)
+def no_anchor_file(monkeypatch, tmp_path_factory):
+    """Point the anchor file somewhere empty unless a test says otherwise.
+
+    Anchors are built by a script into `backend/data/anchors.csv`, so whether
+    that file exists is a property of the developer's machine. Without this the
+    suite would quietly test different behaviour once someone ran the fetcher.
+    """
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    missing = tmp_path_factory.mktemp("no-anchors") / "anchors.csv"
+    monkeypatch.setenv("SEARCH_LOG_ANCHORS", str(missing))
+    yield
+    get_settings.cache_clear()
+
+
+# A stand-in for the GTFS anchor file: a dense core roughly the size of a city
+# centre, plus a sparse fringe reaching ~60 km out. The two regimes are the
+# point -- the density gate must answer in one and refuse in the other.
+CORE = LatLng(lat=47.6062, lng=-122.3321)
+
+
+def anchor_rows() -> list[tuple[str, float, float]]:
+    rows = []
+    for i in range(-10, 11):          # ~220 m spacing, ~4.5 km across
+        for j in range(-10, 11):
+            rows.append((f"Core {i}/{j}", CORE.lat + i * 0.002, CORE.lng + j * 0.003))
+    for i in range(-10, 11):          # ~5.5 km spacing, ~110 km across
+        for j in range(-10, 11):
+            if abs(i) < 2 and abs(j) < 2:
+                continue              # leave the core alone
+            rows.append((f"Fringe {i}/{j}", CORE.lat + i * 0.05, CORE.lng + j * 0.07))
+    return rows
+
+
+@pytest.fixture
+def anchor_file(tmp_path, monkeypatch):
+    """Write the anchor CSV and point the settings at it."""
+    from app.config import get_settings
+
+    path = tmp_path / "anchors.csv"
+    lines = ["name,lat,lng"] + [f"{n},{lat:.6f},{lng:.6f}" for n, lat, lng in anchor_rows()]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    monkeypatch.setenv("SEARCH_LOG_ANCHORS", str(path))
+    get_settings.cache_clear()
+    yield path
+    get_settings.cache_clear()

@@ -10,7 +10,11 @@ services:
     plan: free
     region: oregon
     healthCheckPath: /api/health
-    buildCommand: pip install -r backend/requirements.txt
+    # The anchor file is built here rather than committed: it comes from GTFS
+    # feeds that change every few weeks, so a deploy should carry a fresh one.
+    # `|| true` because a feed being down is not a reason to fail a deploy --
+    # without the file the app falls back to naming a start by neighbourhood.
+    buildCommand: pip install -r backend/requirements.txt && (cd backend && python -m evals.fetch_anchors || true)
     # One worker on purpose: the rate limiter keeps its counters in process
     # memory, so a second worker would silently double every limit.
     startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
@@ -44,3 +48,12 @@ services:
       # rather than something to rely on.
       - key: CACHE_DIR
         value: "/tmp/nsmp-cache"
+      # Record each search as eval input. Coarsened on the way in: no typed
+      # address, no participant names, a start named by the nearest transit
+      # stop or neighbourhood. See docs/EVALS.md.
+      - key: SEARCH_LOG_ENABLED
+        value: "true"
+      # Same ephemeral disk, so this file is a convenience and the log line is
+      # the copy that lasts. Recover records with `python -m evals.from_logs`.
+      - key: SEARCH_LOG_DIR
+        value: "/tmp/nsmp-searchlog"
