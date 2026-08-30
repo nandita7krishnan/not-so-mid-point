@@ -39,7 +39,8 @@ What changes with the file present:
 
 | | Without anchors | With anchors |
 |---|---|---|
-| name | `Ballard` (~50 possible) | `NW Market St & 22nd Ave NW` |
+| `area` | `Ballard` (~50 possible) | `NW Market St & 22nd Ave NW` |
+| `area_coarse` | `Ballard` | `Ballard` — kept, because a stop name is sharper and much harder to read |
 | coordinate | the real one, rounded to ~1.1 km | the stop's own published point |
 | precision | district | ~200–400 m in the city |
 
@@ -62,7 +63,13 @@ Against the real Puget Sound feeds (5,807 anchors), that answers for 46 of the
 the ~1.1 km the rounding gave. It refuses in the four sparsest, and everywhere
 outside the metro.
 
-Both thresholds are settings: `SEARCH_LOG_ANCHOR_MIN_NEIGHBOURS`,
+A stop is also only used within 600 m of the point. That ceiling matters more
+than it looks: at 1.2 km a snapped coordinate could sit *further* from the truth
+than the 2dp rounding it was supposed to improve on, making the record sharper
+in name only. Against the real feeds it costs nothing — the worst stop is 392 m
+away.
+
+Both gate thresholds are settings: `SEARCH_LOG_ANCHOR_MIN_NEIGHBOURS`,
 `SEARCH_LOG_ANCHOR_RADIUS_M`.
 
 ## Synthetic cases

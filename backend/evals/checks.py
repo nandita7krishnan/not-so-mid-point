@@ -13,6 +13,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from app.geo import haversine_m
+from app.state import LatLng
+
 # Checks whose False value means the answer broke a promise the UI made, rather
 # than merely scoring poorly.
 CONTRACTS = (
@@ -103,6 +106,12 @@ def run(record: dict[str, Any]) -> dict[str, Any]:
             "inactive_components": (
                 results[0].get("scores", {}).get("inactive", []) if results else []
             ),
+            # How far the top pick sits from the neighbourhood it is credited
+            # with. The journey times belong to the neighbourhood centroid, and
+            # the "why" line names that neighbourhood as fact, so a venue near
+            # the edge of the search radius is being described as somewhere it
+            # is not -- and quoted travel times it did not earn.
+            "venue_offset_m": _venue_offset(results),
             "warnings": len(response.get("warnings", [])),
         }
     )
@@ -110,6 +119,21 @@ def run(record: dict[str, Any]) -> dict[str, Any]:
         name for name in CONTRACTS if checks.get(name) is False
     ]
     return checks
+
+
+def _venue_offset(results: list[dict[str, Any]]) -> Optional[float]:
+    """Metres between the top pick and its credited neighbourhood centroid.
+
+    None for a record written before venue coordinates were kept, which is not
+    the same as zero and should not be averaged as though it were.
+    """
+    if not results:
+        return None
+    venue = results[0].get("coords")
+    area = results[0].get("journey", {}).get("coords")
+    if not venue or not area:
+        return None
+    return round(haversine_m(LatLng(**venue), LatLng(**area)))
 
 
 def _top(results: list[dict[str, Any]], pick) -> Optional[float]:

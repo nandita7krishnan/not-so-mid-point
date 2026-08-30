@@ -356,3 +356,23 @@ def test_the_log_line_can_be_switched_off(tmp_path, monkeypatch, caplog):
             request=_request(), response=_response(), departure=1_700_000_000,
         )
     assert not [r for r in caplog.records if searchlog.STDOUT_MARKER in r.getMessage()]
+
+
+def test_a_stop_snapped_start_still_names_its_district(anchor_file):
+    """A stop name is sharper and much less legible. Both are kept, because
+    the coarse one was already safe to write down."""
+    from conftest import CORE
+
+    record = _record_with(anchor_file, CORE.lat + 0.0005, CORE.lng + 0.0005)
+    first = record["request"]["people"][0]
+    assert first["area"].startswith("Core ")
+    assert first["area_coarse"] == "Downtown Seattle"
+
+
+def test_a_pick_records_where_it_actually_is(anchor_file):
+    """Journey times belong to the neighbourhood centroid while the venue can
+    sit up to a radius away, so an eval needs both points to judge the claim."""
+    record = _record_with(anchor_file, 47.66853, -122.38351)
+    result = record["response"]["results"][0]
+    assert result["coords"] == {"lat": 47.6089, "lng": -122.3404}
+    assert result["journey"]["coords"] == {"lat": 47.6145, "lng": -122.3462}

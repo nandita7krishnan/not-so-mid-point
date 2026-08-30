@@ -87,23 +87,7 @@ def _nearest_anchor(coords: Any) -> Any:
     )
 
 
-def _area(location: Any) -> tuple[str, str]:
-    """A coarse name for where someone started, and how it was derived.
-
-    The source is recorded alongside the name because the three paths have
-    genuinely different precision, and an eval reading the file should not have
-    to guess which one it got.
-    """
-    anchor = _nearest_anchor(location.coords)
-    if anchor is not None:
-        return anchor.name, "stop"
-    seed = _nearest_seed(location.coords)
-    if seed is not None:
-        return seed, "seed"
-    return _coarse_area(location.label), "label"
-
-
-def _place(location: Any, precision: int) -> tuple[str, str, dict[str, float]]:
+def _place(location: Any, precision: int) -> dict[str, Any]:
     """Where someone started: a name, how it was derived, and a coordinate.
 
     A stop-snapped start reports the stop's own published coordinate rather
@@ -111,12 +95,30 @@ def _place(location: Any, precision: int) -> tuple[str, str, dict[str, float]]:
     the point is exact, so the case can be replayed -- and less revealing,
     because the number in the file is a bus stop somebody published, not an
     approximation of where a person actually was.
+
+    `area_coarse` keeps the district name alongside it. A stop name is the more
+    precise answer and the less legible one: "NE Ravenna Blvd & Woodlawn Ave NE"
+    is unarguably sharper than "Green Lake" and unrecognisable to anyone reading
+    a log to see what was searched. Keeping both costs nothing, because the
+    coarse name is the one that was already safe to write down.
     """
-    area, source = _area(location)
-    if source == "stop":
-        anchor = _nearest_anchor(location.coords)
-        return area, source, {"lat": anchor.coords.lat, "lng": anchor.coords.lng}
-    return area, source, _coords(location.coords, precision)
+    seed = _nearest_seed(location.coords)
+    coarse = seed if seed is not None else _coarse_area(location.label)
+
+    anchor = _nearest_anchor(location.coords)
+    if anchor is not None:
+        return {
+            "area": anchor.name,
+            "area_source": "stop",
+            "area_coarse": coarse,
+            "coords": {"lat": anchor.coords.lat, "lng": anchor.coords.lng},
+        }
+    return {
+        "area": coarse,
+        "area_source": "seed" if seed is not None else "label",
+        "area_coarse": coarse,
+        "coords": _coords(location.coords, precision),
+    }
 
 
 def _coarse_area(label: str) -> str:
@@ -147,13 +149,10 @@ def _coords(coords: Any, places: int) -> dict[str, float]:
 
 
 def _person(index: int, person: Any, precision: int) -> dict[str, Any]:
-    area, source, coords = _place(person.location, precision)
     return {
         # Positional, so a renamed participant never reaches the file.
         "id": f"P{index + 1}",
-        "area": area,
-        "area_source": source,
-        "coords": coords,
+        **_place(person.location, precision),
         "mode": person.mode,
     }
 
@@ -161,6 +160,9 @@ def _person(index: int, person: Any, precision: int) -> dict[str, Any]:
 def _shortlist_entry(entry: dict[str, Any]) -> dict[str, Any]:
     return {
         "neighbourhood": entry["neighbourhood"],
+        # A neighbourhood centroid is a published point, and without it an eval
+        # cannot tell whether a pick is actually in the area it is credited to.
+        "coords": entry["coords"],
         "gap_min": entry["gap_min"],
         "max_min": entry["max_min"],
         "total_min": entry["total_min"],
@@ -184,8 +186,10 @@ def _result(rank: int, result: dict[str, Any]) -> dict[str, Any]:
         "rank": rank,
         "place_id": venue["place_id"],
         "name": venue["name"],
-        # A business address is public information, so it stays whole.
+        # A business address is public information, so it stays whole, and so
+        # is where the business is.
         "address": venue["address"],
+        "coords": venue["coords"],
         "category": venue["category"],
         "primary_type": venue["primary_type"],
         "types": venue["types"],

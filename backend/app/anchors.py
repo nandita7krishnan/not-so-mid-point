@@ -76,7 +76,7 @@ class AnchorSet:
         *,
         radius_m: float = 500.0,
         min_neighbours: int = 3,
-        max_distance_m: float = 1200.0,
+        max_distance_m: float = 600.0,
     ) -> Optional[Anchor]:
         """The closest anchor, or None where naming one would be too sharp.
 
@@ -89,6 +89,13 @@ class AnchorSet:
         per direction, and a feed that spaces them further apart than the
         de-duplication threshold would otherwise let one corner satisfy two
         thirds of the gate on its own.
+
+        `max_distance_m` has to stay below the rounding this replaces. At 1.2 km
+        a snapped coordinate could sit further from the truth than the 2dp
+        rounding it was meant to improve on, which would make the sharper
+        record sharper in name only. 600 m keeps a stop strictly better than
+        the fallback, and against the real feeds it costs almost nothing: the
+        median stop is 177 m away.
         """
         if not self.anchors:
             return None
