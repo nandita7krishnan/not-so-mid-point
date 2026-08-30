@@ -1,15 +1,20 @@
 # Not-So-Mid-Point
 
-**Find a meeting spot that's actually fair to everyone.**
+Finding the best meeting spot for a group, by travel time rather than geography.
 
-Two to five people, scattered starting points, and the perennial question of
-where to meet. The usual answer, picking something "in the middle", quietly
-favours whoever has the better transit connection. Not-So-Mid-Point measures
-what each journey really costs, in travel time and transfers, then finds places
-that are fair on those counts *and* somewhere the group actually wants to be.
+Live at <https://not-so-mid-point.onrender.com/>. It runs on a free host that
+sleeps, so the first search after a quiet spell takes about a minute to wake the
+instance; after that it is normal speed.
 
-It does not compute a geographic midpoint. It asks Google what each person's
-trip to each candidate area actually takes, and optimises from there.
+Two to five people, scattered starting points, and the question of where to
+meet. Picking something "in the middle" on a map quietly favours whoever has the
+better connection to it — the geographic midpoint between a driver and a bus
+rider is usually a short hop for one of them and a long haul for the other.
+
+This tool works from journeys instead. It asks Google what each person's trip to
+each candidate area actually takes, in travel time and number of transfers, and
+ranks areas on how evenly that burden falls — then looks for places within the
+best areas that match what the group is actually up for.
 
 ---
 
@@ -61,8 +66,9 @@ ranked suggestions, each showing every journey in full:
 - **Hard limits**: maximum travel time and, when someone's on transit, maximum
   transfers.
 - **Address autocomplete** so "Fremont" doesn't silently resolve to California.
-- **Honest failure.** When nothing fits, it tells you what to relax: *"Try to
-  raise the travel time limit to about 45 min (closest option: Belltown)."*
+- **A diagnosis when nothing fits**, rather than an empty list: *"Try to raise
+  the travel time limit to about 45 min (closest option: Belltown)."* The number
+  comes from the closest candidate that missed.
 - **A help dialog** (the `?`, top right) explaining what the tool does and how
   fairness and ranking are calculated, without leaving the page.
 
@@ -96,179 +102,37 @@ than min–max normalisation.
 
 ---
 
-## Quick start
+## Are the answers any good?
 
-Requires Python 3.10+ (LangGraph) and a Google Maps Platform key.
+Usage counters say how much the tool is used. They say nothing about whether the
+suggestions were any good, so there is a grading harness for that. It runs in
+two passes, and the split is the point.
 
-```bash
-python3.12 -m venv .venv
-.venv/bin/pip install -r backend/requirements-dev.txt
-cp backend/.env.example backend/.env      # add your key
-cd backend && ../.venv/bin/python -m uvicorn app.main:app --reload
-```
+**Deterministic checks** settle anything arithmetic — a pick over the stated
+travel budget, a transit leg over the transfer budget, an unrated venue in a
+ranking that claims to use ratings, three "different" suggestions on one block.
+These are contract violations rather than opinions, so a model is never asked to
+adjudicate them.
 
-Open http://127.0.0.1:8000.
+Then **a model scores what's left** out of 5: does the venue match what was
+asked for, is the travel burden defensibly shared, would a group actually want
+to meet there, and does the "why" line state only what the journey data
+supports. It is shown the journeys rather than the app's own fairness and
+preference numbers, so it judges the outcome instead of grading the scorer's
+homework.
 
-### API keys
+That last criterion has already caught something: the templated copy calls a
+trip "an even trip for both of you" whenever the spread is under 5 minutes,
+which reads oddly next to a 4-minute spread on a 12-minute journey.
 
-`GOOGLE_MAPS_API_KEY` needs these APIs enabled, and **billing active on the
-project**, because Maps rejects every request without it:
-
-| API | Used by |
-|---|---|
-| Geocoding | resolving typed addresses |
-| Distance Matrix | Node 0's corridor sweep |
-| Directions | Nodes A/B: travel time *and* transfer counts |
-| Places API (**New**) | venue search, autocomplete, place details |
-
-Places API **(New)** is a separate product from the legacy "Places API" with a
-nearly identical name in the console. The legacy one will not work.
-
-`ANTHROPIC_API_KEY` is optional. Without it, free-text preferences go straight to
-Places text search and the explanations come from templates. With it, Claude
-expands your description into search types and re-ranks results by fit.
-
----
-
-## Costs
-
-**$0 for a repeat**, because responses cache for 24 hours, so adjusting sliders on
-the same group is free. A cold search costs about **$0.43** (2 people, categories)
-or **$0.60** with free text.
-
-The binding constraint is **Places Search Enterprise**: requesting `rating` and
-`userRatingCount` puts every venue search in the Enterprise SKU, which allows
-**1,000 calls/month free** rather than Pro's 5,000. Ranking on Google ratings is
-core to the scoring, so this is not avoidable, only tuneable.
-
-Nearby Search and Text Search are **separate SKUs with separate 1,000/month
-allowances**, so using free text does not halve your capacity.
-
-| SKU | Per search | Free/month |
-|---|---:|---:|
-| Places Nearby/Text **Enterprise** | 3–4 (double with free text) | **1,000** |
-| Distance Matrix (elements) | N × 16 | 10,000 |
-| Directions | N × 8 | 10,000 |
-| Geocoding / Place Details | N | 10,000 |
-
-`NEIGHBOURHOODS_SEARCHED` (3) is the main dial: it sets the Places calls per
-search, and therefore how many searches fit inside the free tier. At 3 it is
-about 8 searches/day; at 5 it was 6.5, and under 4 with free text.
-
-`GLOBAL_RECOMMEND_PER_DAY` (8) bounds the bill in the app, and fails cleanly with
-a 429 before spending anything. The console quotas below are the hard backstop.
-
-## Deploying
-
-GitHub Pages will not work: it serves static files only, and this needs a Python
-process. It would also force the Maps key into client-side JavaScript, which is
-exactly what the autocomplete proxy exists to avoid.
-
-[`render.yaml`](render.yaml) is a ready blueprint. In Render: **New > Blueprint**,
-point it at this repo, and paste `GOOGLE_MAPS_API_KEY` when prompted. Both keys
-are marked `sync: false`, so they are entered in Render rather than committed.
-
-Two deployment details worth knowing:
-
-- **One worker, deliberately.** The rate limiter keeps counters in process
-  memory, so a second worker would silently double every limit.
-- **The free plan sleeps.** After inactivity the first request takes ~50s to
-  wake the instance. Subsequent searches are normal speed.
-- **The free plan's edge drops requests.** Measured at ~7% on Render free:
-  the router answers `404` with `x-render-routing: no-server` and the request
-  never reaches the instance. The app is not restarting when this happens; the
-  in-memory counters at `/api/stats` hold steady through it. The frontend
-  retries these (they cost nothing, having never arrived), but a paid instance
-  is the real fix if it becomes noticeable.
-
-### Before making it public
-
-A public URL puts every search on your card. At roughly $0.41 a cold search
-against ~312 free per month, an idle loop drains the free tier in minutes.
-
-The blueprint enables rate limiting by default:
-
-| Limit | Default | Purpose |
-|---|---|---|
-| `RECOMMEND_PER_HOUR` | 12 | one visitor hammering the expensive path |
-| `RECOMMEND_PER_DAY` | 40 | slower-burn abuse from one visitor |
-| `AUTOCOMPLETE_PER_MINUTE` | 60 | typing is cheap, so this is loose |
-| `GLOBAL_RECOMMEND_PER_DAY` | **8** | **the ceiling that actually bounds the bill** |
-
-Set these quotas in the Google console as the hard backstop (free tier ÷ 31):
-
-| API | Quota row | Per day | Per minute |
-|---|---|---:|---:|
-| Directions | Requests | 322 | 120 |
-| Distance Matrix | Elements | 322 | 240 |
-| Places API (New) | `SearchNearbyRequest` | **32** | 12 |
-| Places API (New) | `SearchTextRequest` | **32** | 12 |
-| Places API (New) | `GetPlaceRequest` | 322 | 30 |
-| Places API (New) | `AutocompletePlacesRequest` | 322 | 120 |
-| Geocoding | **v3** requests | 322 | 30 |
-
-Places API (New) exposes a **separate quota row per operation**, so the two
-Enterprise-billed searches can be capped tightly without throttling the
-typeahead. 32/day on each keeps both inside their 1,000/month allowances.
-
-Geocoding lists v3 and v4 rows; this app calls the v3 endpoint
-(`maps/api/geocode/json`), so the v4 GeocodeAddress/Location/Place rows are
-unused and can be left alone or set low.
-
-Per-day caps are free tier ÷ 31, so they hard-stop before you are billed.
-
-Per-minute values must clear **one search's burst**, because the graph fans out
-concurrently and a whole search lands inside a single minute. A five-person
-search fires 40 Directions calls and 80 Distance Matrix elements at once, so a
-per-minute cap below those fails the search outright rather than throttling it.
-Each per-minute value here allows two to three searches and stays below its own
-per-day cap, so the daily limit is the one that binds.
-
-The global cap is the important one. Per-visitor limits do nothing against many
-visitors, so it is what bounds the worst case. Rejected requests return `429`
-with a `Retry-After` header.
-
-**None of this is the real backstop.** The limiter is per-process and resets on
-restart. Set a hard daily quota cap on each API in the Google Cloud console
-(**APIs & Services > each API > Quotas**) plus a budget alert. That is enforced
-by Google, bills nothing when exceeded, and cannot be restarted away.
-
-## Usage metrics
-
-`GET /api/stats` reports, per day for the last fortnight:
-
-| Field | Meaning |
-|---|---|
-| `visitors` | distinct people that day |
-| `searches_attempted` | every try, including ones that were blocked |
-| `searches_ok` / `searches_no_result` | served, versus "nothing fits your limits" |
-| `blocked_personal` | someone individually going too fast |
-| `blocked_daily_cap` | the instance-wide ceiling, ie. everyone locked out |
-| `blocked_pct` | share of attempts that hit a wall |
-
-The two block reasons are kept apart on purpose. `blocked_personal` is one
-impatient visitor and needs no action; `blocked_daily_cap` climbing means real
-demand is exceeding the free tier, which is the signal for whether paying for
-more quota is worth it.
-
-Visitors are counted by a **salted hash of the IP**, truncated to 12 characters.
-No addresses, locations or per-person history are stored, and a random per-process
-salt means the hashes cannot be correlated with anything else. Set `VISITOR_SALT`
-to keep counts stable across restarts, at the cost of that property.
-
-Counters live in memory and reset on restart. Every event is also logged, and the
-host retains logs, so the log is the durable record.
-
-## Tests
-
-```bash
-cd backend && ../.venv/bin/python -m pytest -q
-```
-
-97 tests run against a fake Maps client, so the whole graph, including the
-parallel fan-out, every failure mode, and each scoring rule, is exercised
-without spending an API call. Most were written as regressions against specific
-bugs found in live output; those cases are documented in the methodology.
+Grading reads from a search log that is **off by default**, because a start
+address is personal data whether or not a name is attached to it. When it is on,
+records are coarsened on the way in, never on the way out: the typed address is
+dropped, a start becomes the nearest of the ~50 seeded neighbourhoods, coordinates
+round to about 1.1 km, and names become `P1`…`P5`. Naming a start by the nearest
+seeded neighbourhood is what makes this safe by construction rather than by
+careful string handling — the output can only ever be a name that was already in
+the list, whatever Google returned.
 
 ---
 
@@ -282,13 +146,19 @@ backend/app/
   providers/maps.py   Google Maps client, cached and concurrency-limited
   providers/llm.py    Claude calls, optional with fallbacks
   data/seattle.py     seeded neighbourhood centroids
+  searchlog.py        coarsened record of each search, as eval input
+backend/evals/
+  checks.py           deterministic checks; contract violations
+  judge.py            model grading + summary, `python -m evals.judge`
 frontend/             form, results, Leaflet map
 ```
 
-`GET /api/health` reports which keys are configured.
-`GET /api/stats` reports usage and how often people are hit by limits.
-`POST /api/recommend` runs the graph.
-`POST /api/places/autocomplete` backs the address fields.
+`POST /api/recommend` runs the graph, `POST /api/places/autocomplete` backs the
+address fields, and `GET /api/health` and `/api/stats` report configuration and
+usage.
+
+Running your own copy, hosting it, and the API keys and quotas that needs:
+**[docs/OPERATIONS.md](docs/OPERATIONS.md)**.
 
 ---
 
